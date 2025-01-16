@@ -127,6 +127,7 @@ class Stack(TerraformStack):
             m_role = IamRole(
                 self,
                 id_=self.data.identifier + "-enhanced-monitoring",
+                name=self.data.identifier + "-enhanced-monitoring",
                 assume_role_policy=json.dumps(assume_role_policy),
             )
 
@@ -137,6 +138,7 @@ class Stack(TerraformStack):
                 role=m_role.name,
                 policy_arn=policy_arn,
             )
+            self.data.monitoring_role_arn = m_role.arn
 
     def _db_replicas(self) -> None:
         if self.data.replica_source:

@@ -9,6 +9,7 @@ from botocore.config import Config
 from external_resources_io.input import parse_model, read_input_from_file
 from external_resources_io.terraform import (
     Action,
+    Plan,
     ResourceChange,
     TerraformJsonPlanParser,
 )
@@ -61,9 +62,7 @@ class AWSApi:
 class RDSPlanValidator:
     """The plan validator class"""
 
-    def __init__(
-        self, plan: TerraformJsonPlanParser, app_interface_input: AppInterfaceInput
-    ) -> None:
+    def __init__(self, plan: Plan, app_interface_input: AppInterfaceInput) -> None:
         self.plan = plan
         self.input = app_interface_input
         self.aws_api = AWSApi(
@@ -76,10 +75,21 @@ class RDSPlanValidator:
         "Gets the plan updates"
         return [
             c
-            for c in self.plan.plan.resource_changes
+            for c in self.plan.resource_changes
             if c.type == "aws_db_instance"
             and c.change
             and Action.ActionUpdate in c.change.actions
+        ]
+
+    @property
+    def aws_db_instance_deletions(self) -> list[ResourceChange]:
+        "Gets the plan updates"
+        return [
+            c
+            for c in self.plan.resource_changes
+            if c.type == "aws_db_instance"
+            and c.change
+            and Action.ActionDelete in c.change.actions
         ]
 
     def _validate_major_version_upgrade(self) -> None:
@@ -115,6 +125,15 @@ class RDSPlanValidator:
                         "To enable major version ugprades, allow_major_version_upgrade attribute must be set to True"
                     )
 
+    def _validate_deletion_protection_not_enabled_on_destroy(self) -> None:
+        for u in self.aws_db_instance_deletions:
+            if not u.change or not u.change.before:
+                continue
+            if u.change.before.get("deletion_protection", False):
+                self.errors.append(
+                    "Deletion protection cannot be enabled on destroy. Disable deletion_protection first to remove the instance"
+                )
+
     def validate(self) -> bool:
         """Validate method"""
         self._validate_major_version_upgrade()
@@ -129,8 +148,8 @@ if __name__ == "__main__":
     )
 
     logger.info("Running RDS terraform plan validation")
-    plan = TerraformJsonPlanParser(plan_path=sys.argv[1])
-    validator = RDSPlanValidator(plan, app_interface_input)
+    parser = TerraformJsonPlanParser(plan_path=sys.argv[1])
+    validator = RDSPlanValidator(parser.plan, app_interface_input)
     if not validator.validate():
         logger.error(validator.errors)
         sys.exit(1)

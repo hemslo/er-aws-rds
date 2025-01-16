@@ -135,6 +135,7 @@ class Rds(RdsAppInterface):
     allow_major_version_upgrade: bool | None = False
     availability_zone: str | None = None
     monitoring_interval: int | None = 0
+    monitoring_role_arn: str | None = None
     apply_immediately: bool | None = False
     multi_az: bool | None = False
     replicate_source_db: str | None = None

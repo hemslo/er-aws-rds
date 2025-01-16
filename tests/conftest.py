@@ -45,6 +45,7 @@ def input_data(parameters: Iterable[Parameter] | None) -> dict:
             "publicly_accessible": true,
             "apply_immediately": true,
             "identifier": "test-rds",
+            "enhanced_monitoring": true,
             "parameter_group": {
                 "name": "postgres-14",
                 "family": "postgres14",
