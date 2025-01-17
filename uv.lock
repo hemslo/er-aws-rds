@@ -68,14 +68,14 @@ wheels = [
 
 [[package]]
 name = "botocore-stubs"
-version = "1.35.99"
+version = "1.36.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "types-awscrt" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c3/34/d774bc55e33081f290ff0fbfcebde9a8b1076aa22409074b622f996cdfc0/botocore_stubs-1.35.99.tar.gz", hash = "sha256:659626b30b9950c2d3938f938c76bf15a854b759f96617dc2cf41594f7a4e352", size = 41100 }
+sdist = { url = "https://files.pythonhosted.org/packages/8c/c4/b204239adee30a72ed1ee7a4b7cd13678313d01723f6ba077b59968e68b6/botocore_stubs-1.36.1.tar.gz", hash = "sha256:ff39ddb117fc55e430669744869e6ca737d27338e9c723dced60555bc3866cfa", size = 41173 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/14/f0/1e5ce3c3cc2f07cd3656059dc050c7d41f0efef842b05306dce19ea8fc23/botocore_stubs-1.35.99-py3-none-any.whl", hash = "sha256:6fe3fd4140a16ab3dd560050fdae74f41d4ff7ca55f3583df66b866ef6f9a333", size = 63934 },
+    { url = "https://files.pythonhosted.org/packages/bf/61/6121658f4f498a75ece8cf4136c2908c3f538a651cee5aaf607628b9fa5b/botocore_stubs-1.36.1-py3-none-any.whl", hash = "sha256:7240572081e6be68c09731b63431f5aed51e1d865d83393281660a97179575cf", size = 64004 },
 ]
 
 [[package]]
@@ -499,11 +499,11 @@ wheels = [
 
 [[package]]
 name = "types-s3transfer"
-version = "0.10.4"
+version = "0.11.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/dd/8f/5cf8bea1470f9d0af8a8a8e232bc9d94eb2b8c040f1c19e673fcd3ba488c/types_s3transfer-0.10.4.tar.gz", hash = "sha256:03123477e3064c81efe712bf9d372c7c72f2790711431f9baa59cf96ea607267", size = 13791 }
+sdist = { url = "https://files.pythonhosted.org/packages/70/ac/6379dbfa5bdd47034ac2fd14fc24259572b121e6f7ebfb1baa6fed7e2451/types_s3transfer-0.11.0.tar.gz", hash = "sha256:06e5143457d9c16af547f9fc929ffad675f935fbf05bd2810312603d7c81f019", size = 14031 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/73/de/38872bc9414018e223a4c7193bc2f7ed5ef8ab7a01ab3bb8d7de4f3c2720/types_s3transfer-0.10.4-py3-none-any.whl", hash = "sha256:22ac1aabc98f9d7f2928eb3fb4d5c02bf7435687f0913345a97dd3b84d0c217d", size = 18744 },
+    { url = "https://files.pythonhosted.org/packages/f5/c3/4f8ff68fbf960021014a1b11a587e84cd4e1607d00d501bf5d43ea535168/types_s3transfer-0.11.0-py3-none-any.whl", hash = "sha256:923368fad78191fe36a99cab879f479e65f65a1769b75e33db7522d86a8777ea", size = 19478 },
 ]
 
 [[package]]
