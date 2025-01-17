@@ -35,16 +35,16 @@ wheels = [
 
 [[package]]
 name = "boto3-stubs-lite"
-version = "1.36.0"
+version = "1.36.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "botocore-stubs" },
     { name = "types-s3transfer" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/74/29/b21d13a055b79573e902861cc09d52c14f4004400ced12e3c4ff806f9efe/boto3_stubs_lite-1.36.0.tar.gz", hash = "sha256:2e6138e459ef133a99f1b786417b6fe89960baa57560e924ca48d5eebfebfc04", size = 71272 }
+sdist = { url = "https://files.pythonhosted.org/packages/bb/18/bc5657a9d77dab85489e27b625ad44c71e54e73d59bc99135b6ac9229579/boto3_stubs_lite-1.36.1.tar.gz", hash = "sha256:daca65ffe2d99094c50967575e91b617be336fd7716b7fac16ad9fce30f9504d", size = 71232 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/53/a2/fbae8fbe13395a87ae6c9c4229280a050c6f5ae532c1c258389aaab6e82e/boto3_stubs_lite-1.36.0-py3-none-any.whl", hash = "sha256:78e5e982900d5b77423b189117a233577573763631d4a0aa764df0e6f9c4adb2", size = 42267 },
+    { url = "https://files.pythonhosted.org/packages/ed/9b/3e371782887d56e4904faff78c93e50efd601ea3b35c117edd72c6407796/boto3_stubs_lite-1.36.1-py3-none-any.whl", hash = "sha256:2d56159b8be20c33540a1d5906c45d2efeeca33bf9baa627c4eb852a6ae7d21b", size = 42247 },
 ]
 
 [package.optional-dependencies]
@@ -499,11 +499,11 @@ wheels = [
 
 [[package]]
 name = "types-s3transfer"
-version = "0.11.0"
+version = "0.11.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/70/ac/6379dbfa5bdd47034ac2fd14fc24259572b121e6f7ebfb1baa6fed7e2451/types_s3transfer-0.11.0.tar.gz", hash = "sha256:06e5143457d9c16af547f9fc929ffad675f935fbf05bd2810312603d7c81f019", size = 14031 }
+sdist = { url = "https://files.pythonhosted.org/packages/f0/01/0169c095070a8cb97baf075246b8804390082ee189d344a6767eb89849cd/types_s3transfer-0.11.1.tar.gz", hash = "sha256:6ab89d4d76bcbf6d494582949963b4672347e8daa397d9790f3684b4fcf873c4", size = 14055 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f5/c3/4f8ff68fbf960021014a1b11a587e84cd4e1607d00d501bf5d43ea535168/types_s3transfer-0.11.0-py3-none-any.whl", hash = "sha256:923368fad78191fe36a99cab879f479e65f65a1769b75e33db7522d86a8777ea", size = 19478 },
+    { url = "https://files.pythonhosted.org/packages/0c/87/2452812a3d57a13af13a23239da6c781a079e508bc70a44df576ce76b7c1/types_s3transfer-0.11.1-py3-none-any.whl", hash = "sha256:ddb20d103361c2d7cf95e9e73468cdd12f049f503b1512e6fdfe5a66fa086d2d", size = 19487 },
 ]
 
 [[package]]
