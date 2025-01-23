@@ -29,6 +29,7 @@ def input_data(
     parameters_json_string = json.dumps([
         param.model_dump(by_alias=True) for param in parameters
     ])
+
     """Returns a JSON input data"""
     return json.loads(
         """{
@@ -48,10 +49,13 @@ def input_data(
             "publicly_accessible": true,
             "apply_immediately": true,
             "identifier": "test-rds",
-            "enhanced_monitoring": true,"""
+            "enhanced_monitoring": true,
+            "monitoring_interval": 60,"""
         f"""
             "snapshot_identifier": {json.dumps(snapshot_identifier)},"""
         """
+            "enhanced_monitoring": true,
+            "monitoring_interval": 60,
             "parameter_group": {
                 "name": "postgres-14",
                 "family": "postgres14",

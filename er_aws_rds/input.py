@@ -13,6 +13,8 @@ from pydantic import (
 
 from er_aws_rds.errors import RDSLogicalReplicationError
 
+ENHANCED_MONITORING_ROLE_NAME_MAX_LENGTH = 64
+
 
 class EventNotification(BaseModel):
     "db_event_subscription for SNS"
@@ -150,6 +152,16 @@ class Rds(RdsAppInterface):
     parameter_group_name: str | None = None
     tags: dict[str, Any]
 
+    @property
+    def enhanced_monitoring_role_name(self) -> str:
+        """Id/Name for enhanced monitoring role"""
+        base_name = self.identifier + "-enhanced-monitoring"
+        return (
+            base_name
+            if len(base_name) <= ENHANCED_MONITORING_ROLE_NAME_MAX_LENGTH
+            else self.identifier[:61].rstrip("-") + "-em"
+        )
+
     @computed_field
     def id_(self) -> str:
         """id_"""
@@ -253,6 +265,38 @@ class Rds(RdsAppInterface):
     def is_read_replica(self) -> bool:
         """Returns true if the instance is a read replica"""
         return self.replica_source is not None or self.replicate_source_db is not None
+
+    @model_validator(mode="after")
+    def enhanced_monitoring_attributes_require_enhanced_monitoring(self) -> "Rds":
+        """If monitoring_interval is set, enhanced_monitoring must be enabled"""
+        if not self.enhanced_monitoring and (
+            self.monitoring_interval != 0 or self.monitoring_role_arn
+        ):
+            raise ValueError(
+                "Enhanced monitoring attributes requires enhanced_monitoring to be true"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def monitoring_role_arn_requires_monitoring_interval(self) -> "Rds":
+        """If monitoring_role_arn is set, monitoring_interval must be != 0"""
+        if self.monitoring_role_arn and self.monitoring_interval == 0:
+            raise ValueError("monitoring_role_arn requires a monitoring_interval != 0")
+        return self
+
+    @model_validator(mode="after")
+    def enhanced_monitoring_requires_monitoring_inverval(self) -> "Rds":
+        """If monitoring_role_arn is set, monitoring_interval must be != 0"""
+        if self.enhanced_monitoring and self.monitoring_interval == 0:
+            raise ValueError("enhanced_monitoring requires a monitoring_interval != 0")
+        return self
+
+    @model_validator(mode="after")
+    def kms_key_id_remove_alias_prefix(self) -> "Rds":
+        """Remove alias prefix from kms_key_id"""
+        if self.kms_key_id:
+            self.kms_key_id = self.kms_key_id.removeprefix("alias/")
+        return self
 
 
 class AppInterfaceInput(BaseModel):
