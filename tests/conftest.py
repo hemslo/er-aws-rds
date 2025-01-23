@@ -8,7 +8,10 @@ from er_aws_rds.input import AppInterfaceInput, Parameter
 Testing.__test__ = False
 
 
-def input_data(parameters: Iterable[Parameter] | None) -> dict:
+def input_data(
+    parameters: Iterable[Parameter] | None,
+    snapshot_identifier: str | None = None,
+) -> dict:
     """Returns a parsed JSON input as dict"""
     if not parameters:
         parameters = [
@@ -45,7 +48,10 @@ def input_data(parameters: Iterable[Parameter] | None) -> dict:
             "publicly_accessible": true,
             "apply_immediately": true,
             "identifier": "test-rds",
-            "enhanced_monitoring": true,
+            "enhanced_monitoring": true,"""
+        f"""
+            "snapshot_identifier": {json.dumps(snapshot_identifier)},"""
+        """
             "parameter_group": {
                 "name": "postgres-14",
                 "family": "postgres14",
@@ -98,6 +104,11 @@ def input_data(parameters: Iterable[Parameter] | None) -> dict:
     )
 
 
-def input_object() -> AppInterfaceInput:
+def input_object(snapshot_identifier: str | None = None) -> AppInterfaceInput:
     """Returns an AppInterfaceInput object"""
-    return AppInterfaceInput.model_validate(input_data(parameters=None))
+    return AppInterfaceInput.model_validate(
+        input_data(
+            parameters=None,
+            snapshot_identifier=snapshot_identifier,
+        )
+    )

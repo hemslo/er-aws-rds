@@ -223,11 +223,7 @@ class Stack(TerraformStack):
                 value=self.data.ca_cert.to_vault_ref(),
             )
 
-        if not (
-            self.data.replica_source
-            or self.data.replicate_source_db
-            or self.data.snapshot_identifier
-        ):
+        if not (self.data.replica_source or self.data.replicate_source_db):
             TerraformOutput(
                 self,
                 f"{self.data.identifier}__db_user",

@@ -37,5 +37,6 @@ dev:
 	# Prepare local development environment
 	uv sync
 	# The CDKTF python module generation needs at least 12GB of memory!
+	mkdir -p .gen
 	$(CONTAINER_ENGINE) run --rm -it -v $(PWD)/:/home/app/src -v $(PWD)/.gen:/cdktf-providers:z --entrypoint cdktf-provider-sync quay.io/redhat-services-prod/app-sre-tenant/er-base-cdktf-main/er-base-cdktf-main:latest /cdktf-providers
 	cp sitecustomize.py $(SITE_PACKAGES_DIR)
