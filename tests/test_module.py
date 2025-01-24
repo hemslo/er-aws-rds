@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 import pytest
 from cdktf import Testing
@@ -13,26 +14,20 @@ from er_aws_rds.rds import Stack
 from .conftest import input_object
 
 
-def build_synth(snapshot_identifier: str | None = None) -> str:
+def build_synth(additional_data: dict[str, Any] | None = None) -> str:
     """Create Synth"""
     stack = Stack(
         Testing.app(),
         "CDKTF",
-        input_object(snapshot_identifier=snapshot_identifier),
+        input_object(additional_data=additional_data),
     )
     return Testing.synth(stack)
 
 
-@pytest.fixture
-def synth() -> str:
-    """Synth fixture"""
-    return build_synth()
-
-
-def test_should_contain_rds_instance(synth: str) -> None:
+def test_should_contain_rds_instance() -> None:
     """Test should_contain_rds_instance"""
     assert Testing.to_have_resource_with_properties(
-        synth,
+        build_synth(),
         DbInstance.TF_RESOURCE_TYPE,
         {
             "identifier": "test-rds",
@@ -51,10 +46,10 @@ def test_should_contain_rds_instance(synth: str) -> None:
     )
 
 
-def test_should_contain_parameter_group(synth: str) -> None:
+def test_should_contain_parameter_group() -> None:
     """Test should_contain_parameter_group"""
     assert Testing.to_have_resource_with_properties(
-        synth,
+        build_synth(),
         DbParameterGroup.TF_RESOURCE_TYPE,
         {
             "name": "test-rds-postgres-14",
@@ -65,10 +60,10 @@ def test_should_contain_parameter_group(synth: str) -> None:
     )
 
 
-def test_enhanced_monitoring(synth: str) -> None:
+def test_enhanced_monitoring() -> None:
     """Test enhanced monitoring"""
     assert Testing.to_have_resource_with_properties(
-        synth,
+        build_synth(),
         IamRole.TF_RESOURCE_TYPE,
         {
             "name": "test-rds-enhanced-monitoring",
@@ -76,7 +71,7 @@ def test_enhanced_monitoring(synth: str) -> None:
         },
     )
     assert Testing.to_have_resource_with_properties(
-        synth,
+        build_synth(),
         IamRolePolicyAttachment.TF_RESOURCE_TYPE,
         {
             "role": "${aws_iam_role.test-rds-enhanced-monitoring.name}",
@@ -85,10 +80,14 @@ def test_enhanced_monitoring(synth: str) -> None:
     )
 
 
-@pytest.mark.parametrize("snapshot_identifier", [None, "some-identifier"])
-def test_outputs(snapshot_identifier: str | None) -> None:
+@pytest.mark.parametrize(
+    "additional_data", [None, {"data": {"snapshot_identifier": "some-identifier"}}]
+)
+def test_outputs(
+    additional_data: dict[str, Any] | None,
+) -> None:
     """Test outputs"""
-    synth = build_synth(snapshot_identifier)
+    synth = build_synth(additional_data)
     result = json.loads(synth)
     ca_cert = VaultSecret(
         path="app-interface/global/rds-ca-cert",
