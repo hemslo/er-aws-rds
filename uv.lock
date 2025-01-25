@@ -490,11 +490,11 @@ wheels = [
 
 [[package]]
 name = "types-awscrt"
-version = "0.23.6"
+version = "0.23.7"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/dd/97/c62253e8ed65562c67b2138339444cc77507c8ee01c091e02ead1311e4b8/types_awscrt-0.23.6.tar.gz", hash = "sha256:405bce8c281f9e7c6c92a229225cc0bf10d30729a6a601123213389bd524b8b1", size = 15124 }
+sdist = { url = "https://files.pythonhosted.org/packages/cd/4e/7ca850d6c2fdad13eb0514883c64bcf54e22324ac9a55ccd75065d3d77fe/types_awscrt-0.23.7.tar.gz", hash = "sha256:676284ba043cd5e3fb3911e4978c0e8c32871561646131c272121e33ddd92873", size = 15454 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/21/f1/0f0869d35c1b746df98d60016f898eb49db208747a4ed2de81b58f48ecd8/types_awscrt-0.23.6-py3-none-any.whl", hash = "sha256:fbf9c221af5607b24bf17f8431217ce8b9a27917139edbc984891eb63fd5a593", size = 19025 },
+    { url = "https://files.pythonhosted.org/packages/37/43/ed5c55920b26b34c254f2e38e8bcfdb13f385dba7fe96d8d7cb962b997e7/types_awscrt-0.23.7-py3-none-any.whl", hash = "sha256:e428514a835a2efebd1b6d8a66473b67422cc52e0770a39bee0a4d72048d878b", size = 19415 },
 ]
 
 [[package]]
