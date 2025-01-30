@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
@@ -144,7 +145,9 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
     app_interface_input: AppInterfaceInput = parse_model(
         AppInterfaceInput,
-        read_input_from_file(),
+        read_input_from_file(
+            file_path=os.environ.get("ER_INPUT_FILE", "/inputs/input.json"),
+        ),
     )
 
     logger.info("Running RDS terraform plan validation")
