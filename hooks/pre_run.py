@@ -10,7 +10,7 @@ from hooks.utils.aws_api import AWSApi
 from hooks.utils.blue_green_deployment_manager import BlueGreenDeploymentManager
 from hooks.utils.logger import setup_logging
 from hooks.utils.models import State
-from hooks.utils.runtime import is_dry_run
+from hooks.utils.runtime import is_dry_run, mark_rerun
 
 
 def main() -> None:
@@ -19,10 +19,11 @@ def main() -> None:
     logger = logging.getLogger(__name__)
     app_interface_input = parse_model(AppInterfaceInput, read_input_from_file())
     aws_api = AWSApi(region_name=app_interface_input.data.region)
+    dry_run = is_dry_run()
     manager = BlueGreenDeploymentManager(
         aws_api=aws_api,
         app_interface_input=app_interface_input,
-        dry_run=is_dry_run(),
+        dry_run=dry_run,
     )
     try:
         state = manager.run()
@@ -46,6 +47,11 @@ def main() -> None:
         ):
             logger.info("Blue/Green Deployment in progress, skip all other steps")
             sys.exit(EXIT_SKIP)
+        case State.PENDING_PREPARE:
+            if not dry_run:
+                mark_rerun()
+            logger.info("Pending prepare, continue to the next step")
+            sys.exit(EXIT_OK)
 
 
 if __name__ == "__main__":

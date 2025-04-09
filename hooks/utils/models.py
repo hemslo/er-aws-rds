@@ -56,6 +56,7 @@ class State(StrEnum):
     SOURCE_DB_INSTANCES_DELETED = "source_db_instances_deleted"
     DELETING = "deleting"
     NO_OP = "no_op"
+    PENDING_PREPARE = "pending_prepare"
 
 
 class ActionType(StrEnum):
