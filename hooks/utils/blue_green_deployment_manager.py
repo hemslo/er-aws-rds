@@ -74,6 +74,15 @@ class BlueGreenDeploymentManager:
                 self.model.state = action.next_state
             return self.model.state
 
+        if pending_prepares := self.model.pending_prepares:
+            self.logger.info(f"Pending prepares needed: {', '.join(pending_prepares)}")
+            if self.dry_run:
+                for action in actions:
+                    self.logger.info(
+                        f"Action {action.type}: {action.model_dump_json()}"
+                    )
+            return State.PENDING_PREPARE
+
         for action in actions:
             self.logger.info(f"Action {action.type}: {action.model_dump_json()}")
             if not self.dry_run:

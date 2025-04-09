@@ -486,6 +486,7 @@ def test_run_when_blue_green_deployment_available_but_target_instance_not_availa
 @pytest.mark.parametrize("dry_run", [True, False])
 def test_run_when_create_blue_green_deployment_with_parameter_group_not_found(
     mock_aws_api: Mock,
+    mock_logging: Mock,
     *,
     dry_run: bool,
 ) -> None:
@@ -505,13 +506,14 @@ def test_run_when_create_blue_green_deployment_with_parameter_group_not_found(
         dry_run=dry_run,
     )
 
-    with pytest.raises(
-        ValidationError, match=r".*Target Parameter Group not found: test-rds-pg15.*"
-    ):
-        manager.run()
+    state = manager.run()
 
+    assert state == State.PENDING_PREPARE
     mock_aws_api.get_db_parameter_group.assert_called_once_with("test-rds-pg15")
     mock_aws_api.create_blue_green_deployment.assert_not_called()
+    mock_logging.info.assert_has_calls([
+        call("Pending prepares needed: target_parameter_group"),
+    ])
 
 
 @pytest.mark.parametrize(

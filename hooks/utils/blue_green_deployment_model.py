@@ -21,6 +21,7 @@ from hooks.utils.models import (
     DeleteSourceDBInstanceAction,
     DeleteWithoutSwitchoverAction,
     NoOpAction,
+    PendingPrepare,
     State,
     SwitchoverAction,
     WaitForAvailableAction,
@@ -45,6 +46,7 @@ class BlueGreenDeploymentModel(BaseModel):
     source_db_parameters: dict[str, ParameterOutputTypeDef] = {}
     tags: dict[str, str] | None = None
     valid_upgrade_targets: dict[str, UpgradeTargetTypeDef] = {}
+    _pending_prepares: list[PendingPrepare] = []
 
     @model_validator(mode="after")
     def _init_state(self) -> Self:
@@ -89,12 +91,9 @@ class BlueGreenDeploymentModel(BaseModel):
         if (
             self.config.target
             and self.config.target.parameter_group
-            and (parameter_group_name := self.config.target.parameter_group.name)
             and self.target_db_parameter_group is None
         ):
-            raise ValueError(
-                f"Target Parameter Group not found: {parameter_group_name}"
-            )
+            self._pending_prepares.append(PendingPrepare.TARGET_PARAMETER_GROUP)
         return self
 
     @model_validator(mode="after")
@@ -178,6 +177,11 @@ class BlueGreenDeploymentModel(BaseModel):
                 "Source Parameter Group rds.logical_replication must be 1 for major version upgrade"
             )
         return self
+
+    @property
+    def pending_prepares(self) -> list[PendingPrepare]:
+        """Get pending prepares."""
+        return self._pending_prepares
 
     def plan_actions(self) -> list[BaseAction]:
         """Plan Actions"""

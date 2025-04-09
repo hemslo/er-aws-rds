@@ -8,7 +8,7 @@ from er_aws_rds.input import (
     ParameterGroup,
 )
 from hooks.utils.blue_green_deployment_model import BlueGreenDeploymentModel
-from hooks.utils.models import State
+from hooks.utils.models import PendingPrepare, State
 from tests.conftest import (
     DEFAULT_RDS_INSTANCE,
     DEFAULT_SOURCE_DB_PARAMETERS,
@@ -44,20 +44,20 @@ def test_validate_db_instance_exist() -> None:
 
 def test_validate_target_parameter_group() -> None:
     """Test validate target parameter group"""
-    with pytest.raises(
-        ValidationError, match=r".*Target Parameter Group not found: pg15.*"
-    ):
-        BlueGreenDeploymentModel(
-            db_instance_identifier="test-rds",
-            state=State.INIT,
-            config=build_blue_green_deployment(
-                target=BlueGreenDeploymentTarget(
-                    parameter_group=ParameterGroup(family="postgres15", name="pg15")
-                )
-            ),
-            db_instance=DEFAULT_RDS_INSTANCE,
-            target_db_parameter_group=None,
-        )
+    model = BlueGreenDeploymentModel(
+        db_instance_identifier="test-rds",
+        state=State.INIT,
+        config=build_blue_green_deployment(
+            target=BlueGreenDeploymentTarget(
+                parameter_group=ParameterGroup(family="postgres15", name="pg15")
+            )
+        ),
+        db_instance=DEFAULT_RDS_INSTANCE,
+        target_db_parameter_group=None,
+        valid_upgrade_targets=DEFAULT_VALID_UPGRADE_TARGETS,
+    )
+
+    assert model.pending_prepares == [PendingPrepare.TARGET_PARAMETER_GROUP]
 
 
 def test_validate_deletion_protection() -> None:
