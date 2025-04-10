@@ -65,7 +65,7 @@ def test_validate_target_parameter_group() -> None:
         valid_upgrade_targets=DEFAULT_VALID_UPGRADE_TARGETS,
     )
 
-    assert model.pending_prepares == [PendingPrepare.TARGET_PARAMETER_GROUP]
+    assert model.pending_prepares == {PendingPrepare.TARGET_PARAMETER_GROUP}
 
 
 def test_validate_deletion_protection() -> None:
@@ -96,7 +96,7 @@ def test_validate_deletion_protection_requires_pending_prepare(
         valid_upgrade_targets=DEFAULT_VALID_UPGRADE_TARGETS,
     )
 
-    assert model.pending_prepares == [PendingPrepare.DELETION_PROTECTION]
+    assert model.pending_prepares == {PendingPrepare.DELETION_PROTECTION}
 
 
 @pytest.mark.parametrize("backup_retention_period", [0, None])
@@ -124,7 +124,7 @@ def test_validate_backup_retention_period_with_pending_prepares() -> None:
         valid_upgrade_targets=DEFAULT_VALID_UPGRADE_TARGETS,
     )
 
-    assert model.pending_prepares == [PendingPrepare.BACKUP_RETENTION_PERIOD]
+    assert model.pending_prepares == {PendingPrepare.BACKUP_RETENTION_PERIOD}
 
 
 def test_validate_version_upgrade_when_target_set() -> None:

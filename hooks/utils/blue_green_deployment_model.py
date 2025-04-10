@@ -46,7 +46,7 @@ class BlueGreenDeploymentModel(BaseModel):
     target_db_instances: list[DBInstanceTypeDef] = []
     source_db_parameters: dict[str, ParameterOutputTypeDef] = {}
     valid_upgrade_targets: dict[str, UpgradeTargetTypeDef] = {}
-    _pending_prepares: list[PendingPrepare] = []
+    _pending_prepares: set[PendingPrepare] = set()
 
     @model_validator(mode="after")
     def _init_state(self) -> Self:
@@ -99,14 +99,14 @@ class BlueGreenDeploymentModel(BaseModel):
             and self.config.target.parameter_group
             and self.target_db_parameter_group is None
         ):
-            self._pending_prepares.append(PendingPrepare.TARGET_PARAMETER_GROUP)
+            self._pending_prepares.add(PendingPrepare.TARGET_PARAMETER_GROUP)
         return self
 
     @model_validator(mode="after")
     def _validate_deletion_protection(self) -> Self:
         if self.db_instance and self.db_instance["DeletionProtection"]:
             if not self.input_data.deletion_protection:
-                self._pending_prepares.append(PendingPrepare.DELETION_PROTECTION)
+                self._pending_prepares.add(PendingPrepare.DELETION_PROTECTION)
             else:
                 raise ValueError("deletion_protection must be disabled")
         return self
@@ -115,7 +115,7 @@ class BlueGreenDeploymentModel(BaseModel):
     def _validate_backup_retention_period(self) -> Self:
         if self.db_instance and self.db_instance["BackupRetentionPeriod"] <= 0:
             if self.input_data.backup_retention_period:
-                self._pending_prepares.append(PendingPrepare.BACKUP_RETENTION_PERIOD)
+                self._pending_prepares.add(PendingPrepare.BACKUP_RETENTION_PERIOD)
             else:
                 raise ValueError("backup_retention_period must be greater than 0")
         return self
@@ -191,7 +191,7 @@ class BlueGreenDeploymentModel(BaseModel):
         return self
 
     @property
-    def pending_prepares(self) -> list[PendingPrepare]:
+    def pending_prepares(self) -> set[PendingPrepare]:
         """Get pending prepares."""
         return self._pending_prepares
 
