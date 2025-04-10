@@ -9,9 +9,9 @@ from mypy_boto3_rds.type_defs import (
     ParameterOutputTypeDef,
     UpgradeTargetTypeDef,
 )
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, SkipValidation, model_validator
 
-from er_aws_rds.input import BlueGreenDeployment, BlueGreenDeploymentTarget
+from er_aws_rds.input import BlueGreenDeployment, BlueGreenDeploymentTarget, Rds
 from hooks.utils.models import (
     ActionType,
     BaseAction,
@@ -36,15 +36,15 @@ POSTGRES_LOGICAL_REPLICATION_PARAMETER_NAME = "rds.logical_replication"
 
 class BlueGreenDeploymentModel(BaseModel):
     state: State
-    db_instance_identifier: str
-    config: BlueGreenDeployment
+    input_data: SkipValidation[
+        Rds
+    ]  # Rds validator has side effects on parameter group name, skip validation since already validated
     db_instance: DBInstanceTypeDef | None = None
     target_db_parameter_group: DBParameterGroupTypeDef | None = None
     blue_green_deployment: BlueGreenDeploymentTypeDef | None = None
     source_db_instances: list[DBInstanceTypeDef] = []
     target_db_instances: list[DBInstanceTypeDef] = []
     source_db_parameters: dict[str, ParameterOutputTypeDef] = {}
-    tags: dict[str, str] | None = None
     valid_upgrade_targets: dict[str, UpgradeTargetTypeDef] = {}
     _pending_prepares: list[PendingPrepare] = []
 
@@ -80,10 +80,16 @@ class BlueGreenDeploymentModel(BaseModel):
                 raise ValueError(f"Unexpected Blue/Green Deployment status: {status}")
         return self
 
+    @property
+    def config(self) -> BlueGreenDeployment:
+        """Get BlueGreenDeployment input config"""
+        assert self.input_data.blue_green_deployment
+        return self.input_data.blue_green_deployment
+
     @model_validator(mode="after")
     def _validate_db_instance_exist(self) -> Self:
         if self.db_instance is None:
-            raise ValueError(f"DB Instance not found: {self.db_instance_identifier}")
+            raise ValueError(f"DB Instance not found: {self.input_data.identifier}")
         return self
 
     @model_validator(mode="after")
@@ -381,7 +387,7 @@ class BlueGreenDeploymentModel(BaseModel):
         return CreateAction(
             type=ActionType.CREATE,
             payload=CreateBlueGreenDeploymentParams(
-                name=self.db_instance_identifier,
+                name=self.input_data.identifier,
                 source_arn=self.db_instance["DBInstanceArn"],
                 allocated_storage=target.allocated_storage,
                 engine_version=target.engine_version,
@@ -390,7 +396,7 @@ class BlueGreenDeploymentModel(BaseModel):
                 parameter_group_name=parameter_group_name,
                 storage_throughput=target.storage_throughput,
                 storage_type=target.storage_type,
-                tags=self.tags,
+                tags=self.input_data.tags,
             ),
             next_state=State.PROVISIONING,
         )

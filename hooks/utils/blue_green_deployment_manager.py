@@ -11,7 +11,7 @@ from mypy_boto3_rds.type_defs import (
 
 from er_aws_rds.input import (
     AppInterfaceInput,
-    BlueGreenDeployment,
+    Rds,
 )
 from hooks.utils.aws_api import AWSApi
 from hooks.utils.blue_green_deployment_model import (
@@ -51,22 +51,30 @@ class BlueGreenDeploymentManager:
         self.logger = logging.getLogger(__name__)
         self.model: BlueGreenDeploymentModel | None = None
 
+    @property
+    def blue_green_deployment_name(self) -> str:
+        """Get the Blue/Green Deployment name"""
+        return self.app_interface_input.data.identifier
+
     def run(self) -> State:
         """Run Blue/Green Deployment Manager"""
+        input_data = self.app_interface_input.data
         if (
-            (replica_source := self.app_interface_input.data.replica_source)
+            (replica_source := input_data.replica_source)
             and replica_source.blue_green_deployment
             and replica_source.blue_green_deployment.enabled
         ):
             self.logger.info("blue_green_deployment in replica_source enabled.")
             return State.REPLICA_SOURCE_ENABLED
 
-        config = self.app_interface_input.data.blue_green_deployment
-        if config is None or not config.enabled:
+        if (
+            input_data.blue_green_deployment is None
+            or not input_data.blue_green_deployment.enabled
+        ):
             self.logger.info("blue_green_deployment not enabled.")
             return State.NOT_ENABLED
 
-        self.model = self._build_model(config)
+        self.model = self._build_model(input_data)
         actions = self.model.plan_actions()
         if all(action.type == ActionType.NO_OP for action in actions):
             self.logger.info("No changes for Blue/Green Deployment.")
@@ -91,9 +99,9 @@ class BlueGreenDeploymentManager:
                 self.model.state = action.next_state
         return self.model.state
 
-    def _build_model(self, config: BlueGreenDeployment) -> BlueGreenDeploymentModel:
-        db_instance_identifier = self.app_interface_input.provision.identifier
-        db_instance = self.aws_api.get_db_instance(db_instance_identifier)
+    def _build_model(self, input_data: Rds) -> BlueGreenDeploymentModel:
+        assert input_data.blue_green_deployment
+        db_instance = self.aws_api.get_db_instance(input_data.identifier)
         valid_upgrade_targets = (
             self.aws_api.get_blue_green_deployment_valid_upgrade_targets(
                 engine=db_instance["Engine"],
@@ -103,8 +111,9 @@ class BlueGreenDeploymentManager:
             else {}
         )
         target_parameter_group_name = (
-            config.target.parameter_group.name
-            if config.target and config.target.parameter_group
+            input_data.blue_green_deployment.target.parameter_group.name
+            if input_data.blue_green_deployment.target
+            and input_data.blue_green_deployment.target.parameter_group
             else None
         )
         target_db_parameter_group = (
@@ -113,15 +122,14 @@ class BlueGreenDeploymentManager:
             else None
         )
         blue_green_deployment = self.aws_api.get_blue_green_deployment(
-            db_instance_identifier
+            self.blue_green_deployment_name
         )
         source_db_instances = self._fetch_source_db_instances(blue_green_deployment)
         target_db_instances = self._fetch_target_db_instances(blue_green_deployment)
         source_db_parameters = self._fetch_source_db_parameters(db_instance)
         return BlueGreenDeploymentModel(
-            db_instance_identifier=db_instance_identifier,
             state=State.INIT,
-            config=config,
+            input_data=input_data,
             db_instance=db_instance,
             valid_upgrade_targets=valid_upgrade_targets,
             target_db_parameter_group=target_db_parameter_group,
@@ -129,7 +137,6 @@ class BlueGreenDeploymentManager:
             source_db_instances=source_db_instances,
             target_db_instances=target_db_instances,
             source_db_parameters=source_db_parameters,
-            tags=self.app_interface_input.data.tags,
         )
 
     def _fetch_source_db_parameters(
@@ -208,7 +215,7 @@ class BlueGreenDeploymentManager:
     def _wait_for_available_condition(self) -> bool:
         assert self.model
         self.model.blue_green_deployment = self.aws_api.get_blue_green_deployment(
-            self.model.db_instance_identifier
+            self.blue_green_deployment_name
         )
         self.model.target_db_instances = self._fetch_target_db_instances(
             self.model.blue_green_deployment
@@ -236,9 +243,8 @@ class BlueGreenDeploymentManager:
 
     def _wait_for_switchover_completed_condition(self) -> bool:
         assert self.model
-        assert self.model.db_instance_identifier
         self.model.blue_green_deployment = self.aws_api.get_blue_green_deployment(
-            self.model.db_instance_identifier
+            self.blue_green_deployment_name
         )
         return (
             self.model.blue_green_deployment is not None
@@ -289,7 +295,7 @@ class BlueGreenDeploymentManager:
     def _wait_for_delete_condition_condition(self) -> bool:
         assert self.model
         self.model.blue_green_deployment = self.aws_api.get_blue_green_deployment(
-            self.model.db_instance_identifier
+            self.blue_green_deployment_name
         )
         return self.model.blue_green_deployment is None
 

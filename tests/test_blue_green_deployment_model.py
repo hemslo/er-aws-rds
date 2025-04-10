@@ -6,6 +6,7 @@ from er_aws_rds.input import (
     BlueGreenDeployment,
     BlueGreenDeploymentTarget,
     ParameterGroup,
+    Rds,
 )
 from hooks.utils.blue_green_deployment_model import BlueGreenDeploymentModel
 from hooks.utils.models import PendingPrepare, State
@@ -16,18 +17,23 @@ from tests.conftest import (
 )
 
 
-def build_blue_green_deployment(
+def build_blue_green_deployment_input_data(
     *,
     switchover: bool = False,
     delete: bool = False,
     target: BlueGreenDeploymentTarget | None = None,
-) -> BlueGreenDeployment:
-    """Build BlueGreenDeployment object"""
-    return BlueGreenDeployment(
-        enabled=True,
-        switchover=switchover,
-        delete=delete,
-        target=target,
+) -> Rds:
+    """Build Rds input object"""
+    return Rds(
+        identifier="test-rds",
+        region="us-east-1",
+        output_prefix="prefixed-test-rds",
+        blue_green_deployment=BlueGreenDeployment(
+            enabled=True,
+            switchover=switchover,
+            delete=delete,
+            target=target,
+        ),
     )
 
 
@@ -35,9 +41,8 @@ def test_validate_db_instance_exist() -> None:
     """Test validate db instance exist"""
     with pytest.raises(ValidationError, match=r".*DB Instance not found: test-rds.*"):
         BlueGreenDeploymentModel(
-            db_instance_identifier="test-rds",
             state=State.INIT,
-            config=build_blue_green_deployment(),
+            input_data=build_blue_green_deployment_input_data(),
             db_instance=None,
         )
 
@@ -45,9 +50,8 @@ def test_validate_db_instance_exist() -> None:
 def test_validate_target_parameter_group() -> None:
     """Test validate target parameter group"""
     model = BlueGreenDeploymentModel(
-        db_instance_identifier="test-rds",
         state=State.INIT,
-        config=build_blue_green_deployment(
+        input_data=build_blue_green_deployment_input_data(
             target=BlueGreenDeploymentTarget(
                 parameter_group=ParameterGroup(family="postgres15", name="pg15")
             )
@@ -66,9 +70,8 @@ def test_validate_deletion_protection() -> None:
         ValidationError, match=r".*deletion_protection must be disabled.*"
     ):
         BlueGreenDeploymentModel(
-            db_instance_identifier="test-rds",
             state=State.INIT,
-            config=build_blue_green_deployment(),
+            input_data=build_blue_green_deployment_input_data(),
             db_instance=DEFAULT_RDS_INSTANCE | {"DeletionProtection": True},
         )
 
@@ -79,9 +82,8 @@ def test_validate_backup_retention_period() -> None:
         ValidationError, match=r".*backup_retention_period must be greater than 0.*"
     ):
         BlueGreenDeploymentModel(
-            db_instance_identifier="test-rds",
             state=State.INIT,
-            config=build_blue_green_deployment(),
+            input_data=build_blue_green_deployment_input_data(),
             db_instance=DEFAULT_RDS_INSTANCE | {"BackupRetentionPeriod": 0},
         )
 
@@ -93,9 +95,8 @@ def test_validate_version_upgrade_when_target_set() -> None:
         match=r".*target engine_version 16.1 is not valid, valid versions: 16.3.*",
     ):
         BlueGreenDeploymentModel(
-            db_instance_identifier="test-rds",
             state=State.INIT,
-            config=build_blue_green_deployment(
+            input_data=build_blue_green_deployment_input_data(
                 target=BlueGreenDeploymentTarget(engine_version="16.1")
             ),
             db_instance=DEFAULT_RDS_INSTANCE,
@@ -112,9 +113,8 @@ def test_validate_version_upgrade_when_target_not_set() -> None:
         match=r".*target engine_version 15.7 is not valid, valid versions: 16.3.*",
     ):
         BlueGreenDeploymentModel(
-            db_instance_identifier="test-rds",
             state=State.INIT,
-            config=build_blue_green_deployment(),
+            input_data=build_blue_green_deployment_input_data(),
             db_instance=DEFAULT_RDS_INSTANCE,
             valid_upgrade_targets={
                 "16.3": {"EngineVersion": "16.3", "IsMajorVersionUpgrade": True},
@@ -138,9 +138,8 @@ def test_validate_supported_engine_version_for_mysql(
         match=rf".*mysql engine_version {engine_version} is not supported for blue/green deployment.*",
     ):
         BlueGreenDeploymentModel(
-            db_instance_identifier="test-rds",
             state=State.INIT,
-            config=build_blue_green_deployment(
+            input_data=build_blue_green_deployment_input_data(
                 target=BlueGreenDeploymentTarget(engine_version="8.4.4")
             ),
             db_instance=DEFAULT_RDS_INSTANCE
@@ -164,9 +163,8 @@ def test_validate_supported_engine_version_for_mysql_ok(
 ) -> None:
     """Test validate supported engine version for mysql OK"""
     model = BlueGreenDeploymentModel(
-        db_instance_identifier="test-rds",
         state=State.INIT,
-        config=build_blue_green_deployment(
+        input_data=build_blue_green_deployment_input_data(
             target=BlueGreenDeploymentTarget(engine_version="8.4.4")
         ),
         db_instance=DEFAULT_RDS_INSTANCE
@@ -198,9 +196,8 @@ def test_validate_supported_engine_version_for_postgres_major_version_upgrade(
         match=rf".*postgres engine_version {engine_version} is not supported for blue/green deployment.*",
     ):
         BlueGreenDeploymentModel(
-            db_instance_identifier="test-rds",
             state=State.INIT,
-            config=build_blue_green_deployment(
+            input_data=build_blue_green_deployment_input_data(
                 target=BlueGreenDeploymentTarget(engine_version="17.1")
             ),
             db_instance=DEFAULT_RDS_INSTANCE | {"EngineVersion": engine_version},
@@ -233,9 +230,8 @@ def test_validate_supported_engine_version_for_postgres_major_version_upgrade_ok
 ) -> None:
     """Test validate supported engine version for postgres major version upgrade ok"""
     model = BlueGreenDeploymentModel(
-        db_instance_identifier="test-rds",
         state=State.INIT,
-        config=build_blue_green_deployment(
+        input_data=build_blue_green_deployment_input_data(
             target=BlueGreenDeploymentTarget(engine_version="18.0")
         ),
         db_instance=DEFAULT_RDS_INSTANCE | {"EngineVersion": engine_version},
@@ -263,9 +259,8 @@ def test_validate_supported_engine_version_for_postgres_non_major_version_upgrad
 ) -> None:
     """Test validate supported engine version for postgres non-major version upgrade"""
     model = BlueGreenDeploymentModel(
-        db_instance_identifier="test-rds",
         state=State.INIT,
-        config=build_blue_green_deployment(
+        input_data=build_blue_green_deployment_input_data(
             target=BlueGreenDeploymentTarget(engine_version=engine_version)
         ),
         db_instance=DEFAULT_RDS_INSTANCE | {"EngineVersion": engine_version},
@@ -303,9 +298,8 @@ def test_validate_source_parameter_group_status(status: str) -> None:
         match=r".*Source Parameter Group status is not in-sync: .*",
     ):
         BlueGreenDeploymentModel(
-            db_instance_identifier="test-rds",
             state=State.INIT,
-            config=build_blue_green_deployment(),
+            input_data=build_blue_green_deployment_input_data(),
             db_instance=db_instance,
             valid_upgrade_targets=DEFAULT_VALID_UPGRADE_TARGETS,
         )
@@ -333,9 +327,8 @@ def test_validate_source_db_parameters(
         match=r".*Source Parameter Group rds.logical_replication must be 1 for major version upgrade.*",
     ):
         BlueGreenDeploymentModel(
-            db_instance_identifier="test-rds",
             state=State.INIT,
-            config=build_blue_green_deployment(
+            input_data=build_blue_green_deployment_input_data(
                 target=BlueGreenDeploymentTarget(engine_version="16.3")
             ),
             db_instance=DEFAULT_RDS_INSTANCE,
@@ -347,9 +340,8 @@ def test_validate_source_db_parameters(
 def test_validate_source_db_parameters_for_non_major_version_upgrade() -> None:
     """Test validate source db parameters for minor version upgrade"""
     model = BlueGreenDeploymentModel(
-        db_instance_identifier="test-rds",
         state=State.INIT,
-        config=build_blue_green_deployment(
+        input_data=build_blue_green_deployment_input_data(
             target=BlueGreenDeploymentTarget(engine_version="15.7")
         ),
         db_instance=DEFAULT_RDS_INSTANCE,
