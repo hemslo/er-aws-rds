@@ -114,7 +114,10 @@ class BlueGreenDeploymentModel(BaseModel):
     @model_validator(mode="after")
     def _validate_backup_retention_period(self) -> Self:
         if self.db_instance and self.db_instance["BackupRetentionPeriod"] <= 0:
-            raise ValueError("backup_retention_period must be greater than 0")
+            if self.input_data.backup_retention_period:
+                self._pending_prepares.append(PendingPrepare.BACKUP_RETENTION_PERIOD)
+            else:
+                raise ValueError("backup_retention_period must be greater than 0")
         return self
 
     @model_validator(mode="after")

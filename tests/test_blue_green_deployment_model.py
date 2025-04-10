@@ -23,6 +23,7 @@ def build_blue_green_deployment_input_data(
     delete: bool = False,
     target: BlueGreenDeploymentTarget | None = None,
     deletion_protection: bool = False,
+    backup_retention_period: int | None = None,
 ) -> Rds:
     """Build Rds input object"""
     return Rds(
@@ -30,6 +31,7 @@ def build_blue_green_deployment_input_data(
         region="us-east-1",
         output_prefix="prefixed-test-rds",
         deletion_protection=deletion_protection,
+        backup_retention_period=backup_retention_period,
         blue_green_deployment=BlueGreenDeployment(
             enabled=True,
             switchover=switchover,
@@ -91,16 +93,32 @@ def test_validate_deletion_protection_requires_pending_prepare() -> None:
     assert model.pending_prepares == [PendingPrepare.DELETION_PROTECTION]
 
 
-def test_validate_backup_retention_period() -> None:
+@pytest.mark.parametrize("backup_retention_period", [0, None])
+def test_validate_backup_retention_period(backup_retention_period: int | None) -> None:
     """Test validate backup retention period"""
     with pytest.raises(
         ValidationError, match=r".*backup_retention_period must be greater than 0.*"
     ):
         BlueGreenDeploymentModel(
             state=State.INIT,
-            input_data=build_blue_green_deployment_input_data(),
+            input_data=build_blue_green_deployment_input_data(
+                backup_retention_period=backup_retention_period
+            ),
             db_instance=DEFAULT_RDS_INSTANCE | {"BackupRetentionPeriod": 0},
+            valid_upgrade_targets=DEFAULT_VALID_UPGRADE_TARGETS,
         )
+
+
+def test_validate_backup_retention_period_with_pending_prepares() -> None:
+    """Test validate backup retention period with pending prepares"""
+    model = BlueGreenDeploymentModel(
+        state=State.INIT,
+        input_data=build_blue_green_deployment_input_data(backup_retention_period=7),
+        db_instance=DEFAULT_RDS_INSTANCE | {"BackupRetentionPeriod": 0},
+        valid_upgrade_targets=DEFAULT_VALID_UPGRADE_TARGETS,
+    )
+
+    assert model.pending_prepares == [PendingPrepare.BACKUP_RETENTION_PERIOD]
 
 
 def test_validate_version_upgrade_when_target_set() -> None:
