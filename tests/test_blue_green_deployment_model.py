@@ -81,11 +81,17 @@ def test_validate_deletion_protection() -> None:
         )
 
 
-def test_validate_deletion_protection_requires_pending_prepare() -> None:
+@pytest.mark.parametrize("deletion_protection", [False, None])
+def test_validate_deletion_protection_requires_pending_prepare(
+    *,
+    deletion_protection: bool | None,
+) -> None:
     """Test validate deletion protection requires pending prepare"""
     model = BlueGreenDeploymentModel(
         state=State.INIT,
-        input_data=build_blue_green_deployment_input_data(deletion_protection=False),
+        input_data=build_blue_green_deployment_input_data(
+            deletion_protection=deletion_protection
+        ),
         db_instance=DEFAULT_RDS_INSTANCE | {"DeletionProtection": True},
         valid_upgrade_targets=DEFAULT_VALID_UPGRADE_TARGETS,
     )
