@@ -22,12 +22,14 @@ def build_blue_green_deployment_input_data(
     switchover: bool = False,
     delete: bool = False,
     target: BlueGreenDeploymentTarget | None = None,
+    deletion_protection: bool = False,
 ) -> Rds:
     """Build Rds input object"""
     return Rds(
         identifier="test-rds",
         region="us-east-1",
         output_prefix="prefixed-test-rds",
+        deletion_protection=deletion_protection,
         blue_green_deployment=BlueGreenDeployment(
             enabled=True,
             switchover=switchover,
@@ -71,9 +73,22 @@ def test_validate_deletion_protection() -> None:
     ):
         BlueGreenDeploymentModel(
             state=State.INIT,
-            input_data=build_blue_green_deployment_input_data(),
+            input_data=build_blue_green_deployment_input_data(deletion_protection=True),
             db_instance=DEFAULT_RDS_INSTANCE | {"DeletionProtection": True},
+            valid_upgrade_targets=DEFAULT_VALID_UPGRADE_TARGETS,
         )
+
+
+def test_validate_deletion_protection_requires_pending_prepare() -> None:
+    """Test validate deletion protection requires pending prepare"""
+    model = BlueGreenDeploymentModel(
+        state=State.INIT,
+        input_data=build_blue_green_deployment_input_data(deletion_protection=False),
+        db_instance=DEFAULT_RDS_INSTANCE | {"DeletionProtection": True},
+        valid_upgrade_targets=DEFAULT_VALID_UPGRADE_TARGETS,
+    )
+
+    assert model.pending_prepares == [PendingPrepare.DELETION_PROTECTION]
 
 
 def test_validate_backup_retention_period() -> None:
