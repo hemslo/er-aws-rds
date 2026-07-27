@@ -51,7 +51,7 @@ class Parameter(BaseModel):
 
     @field_validator("value", mode="before")
     @classmethod
-    def transform(cls, v: Any) -> str:  # noqa: ANN401
+    def transform(cls, v: Any) -> str:  # ruff: ignore[any-type]
         """values come as int|str|float|bool from App-Interface, but terraform only allows str"""
         return str(v)
 

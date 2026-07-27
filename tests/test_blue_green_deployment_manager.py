@@ -105,7 +105,7 @@ def build_blue_green_deployment_data(
     }
 
 
-def setup_aws_api_side_effects(  # noqa: PLR0913
+def setup_aws_api_side_effects(  # ruff: ignore[too-many-arguments]
     mock_aws_api: Mock,
     *,
     get_db_instance: list[DBInstanceTypeDef | None] | None = None,

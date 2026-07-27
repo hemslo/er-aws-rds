@@ -32,7 +32,7 @@ class CreateBlueGreenDeploymentParams(BaseModel):
     tags: dict[str, str] | None = Field(serialization_alias="Tags", default=None)
 
     @field_serializer("tags")
-    def serialize_tags(  # noqa: PLR6301
+    def serialize_tags(  # ruff: ignore[no-self-use]
         self,
         tags: dict[str, str] | None,
     ) -> list[dict[str, str]] | None:

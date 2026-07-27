@@ -29,7 +29,7 @@ def main() -> None:
     try:
         state = manager.run()
     except ValidationError as e:
-        logger.error("Validation Error for Blue/Green Deployment management: %s", e)  # noqa: TRY400
+        logger.error("Validation Error for Blue/Green Deployment management: %s", e)  # ruff: ignore[error-instead-of-exception]
         sys.exit(EXIT_ERROR)
     except Exception:
         logger.exception("Error during Blue/Green Deployment management")

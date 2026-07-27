@@ -82,7 +82,7 @@ def mock_mark_rerun() -> Iterator[Mock]:
         (True, State.PENDING_PREPARE, 0),
     ],
 )
-def test_pre_run_hook(  # noqa: PLR0913
+def test_pre_run_hook(  # ruff: ignore[too-many-arguments]
     mock_read_input_from_file: Mock,
     mock_aws_api: Mock,
     mock_blue_green_deployment_manager: Mock,
@@ -113,7 +113,7 @@ def test_pre_run_hook(  # noqa: PLR0913
     mock_logging.getLogger.return_value.info.assert_called_once()
 
 
-def test_pre_run_hook_with_pending_prepare(  # noqa: PLR0913, PLR0917
+def test_pre_run_hook_with_pending_prepare(  # ruff: ignore[too-many-arguments, too-many-positional-arguments]
     mock_read_input_from_file: Mock,
     mock_aws_api: Mock,
     mock_blue_green_deployment_manager: Mock,
@@ -147,7 +147,7 @@ def test_pre_run_hook_with_pending_prepare(  # noqa: PLR0913, PLR0917
 
 
 @pytest.mark.parametrize("dry_run", [True, False])
-def test_pre_run_hook_exception(  # noqa: PLR0913
+def test_pre_run_hook_exception(  # ruff: ignore[too-many-arguments]
     mock_read_input_from_file: Mock,
     mock_aws_api: Mock,
     mock_blue_green_deployment_manager: Mock,
@@ -173,7 +173,7 @@ def test_pre_run_hook_exception(  # noqa: PLR0913
 
 
 @pytest.mark.parametrize("dry_run", [True, False])
-def test_pre_run_hook_validation_error(  # noqa: PLR0913
+def test_pre_run_hook_validation_error(  # ruff: ignore[too-many-arguments]
     mock_read_input_from_file: Mock,
     mock_aws_api: Mock,
     mock_blue_green_deployment_manager: Mock,
