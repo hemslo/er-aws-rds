@@ -1,4 +1,4 @@
-FROM quay.io/redhat-services-prod/app-sre-tenant/er-base-terraform-main/er-base-terraform-main:0.6.0-10@sha256:1f18e898630be3ee6131e03ad84d15c9c51804d702b1a79beb28e5aa27842082 AS base
+FROM quay.io/redhat-services-prod/app-sre-tenant/er-base-terraform-main/er-base-terraform-main:0.6.0-11@sha256:497aa38497e9af1610948012e50d975baa1f99db3b1bba8989bb28b2df57c92c AS base
 # keep in sync with pyproject.toml
 LABEL konflux.additional-tags="0.13.0"
 COPY LICENSE /licenses/
