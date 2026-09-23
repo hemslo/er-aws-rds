@@ -1,0 +1,49 @@
+{
+  "data": {
+    "allocated_storage": 20,
+    "allow_major_version_upgrade": false,
+    "apply_immediately": true,
+    "auto_minor_version_upgrade": false,
+    "backup_retention_period": 7,
+    "engine": "postgres",
+    "engine_version": "16.14",
+    "identifier": "{{run_id}}-replica",
+    "instance_class": "db.t4g.micro",
+    "multi_az": false,
+    "name": "postgres",
+    "output_prefix": "{{run_id}}-replica-rds",
+    "region": "us-east-1",
+    "replica_source": {
+      "blue_green_deployment": null,
+      "identifier": "{{run_id}}",
+      "region": "us-east-1"
+    },
+    "skip_final_snapshot": true,
+    "storage_type": "gp3",
+    "tags": {
+      "app": "example",
+      "managed_by_integration": "external_resources",
+      "service-phase": "dev"
+    },
+    "timeouts": {
+      "create": "295m",
+      "delete": "295m",
+      "update": "295m"
+    },
+    "username": "postgres"
+  },
+  "provision": {
+    "identifier": "{{run_id}}-replica",
+    "module_provision_data": {
+      "tf_state_bucket": "external-resources-terraform-state-dev",
+      "tf_state_key": "aws/app-int-example-01/rds/{{run_id}}-replica/terraform.tfstate",
+      "tf_state_region": "us-east-1"
+    },
+    "provider": "rds",
+    "provision_provider": "aws",
+    "provisioner": "app-int-example-01",
+    "target_cluster": "appint-ex-01",
+    "target_namespace": "example-rds-01",
+    "target_secret_name": "{{run_id}}-rds-replica"
+  }
+}

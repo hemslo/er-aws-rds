@@ -1,0 +1,9 @@
+output_dir: .erv2-itests
+scenarios_dir: integration-tests
+default_mode: erv2
+log_level: INFO
+
+# Set these to the Vault KVv2 paths for the target AWS credentials and
+# Terraform state credentials used by your integration-test environment.
+target_account: replace-with-target-account-vault-path
+tf_state_account: replace-with-terraform-state-vault-path

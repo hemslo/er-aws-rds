@@ -381,6 +381,113 @@ def test_copy_tags_to_snapshot_default_true() -> None:
     assert model.data.copy_tags_to_snapshot is True
 
 
+@pytest.mark.parametrize(
+    ("replica_config", "expected_source"),
+    [
+        pytest.param(
+            {
+                "replicate_source_db": (
+                    "arn:aws:rds:us-east-1:123456789012:db:test-rds-source"
+                ),
+            },
+            "arn:aws:rds:us-east-1:123456789012:db:test-rds-source",
+            id="direct",
+        ),
+        pytest.param(
+            {
+                "replica_source": {
+                    "identifier": "test-rds-source",
+                    "region": "us-east-1",
+                },
+                "db_subnet_group_name": None,
+            },
+            "test-rds-source",
+            id="same-region",
+        ),
+        pytest.param(
+            {
+                "replica_source": {
+                    "identifier": "test-rds-source",
+                    "region": "us-west-2",
+                },
+                "db_subnet_group_name": "custom-subnet-group",
+            },
+            None,
+            id="cross-region",
+        ),
+    ],
+)
+def test_allocated_storage_is_preserved_for_read_replicas(
+    replica_config: dict,
+    expected_source: str | None,
+) -> None:
+    """Keep explicitly configured storage for every read-replica input form."""
+    model = AppInterfaceInput.model_validate(input_data({"data": replica_config}))
+
+    assert model.data.allocated_storage == 20
+    assert model.data.replicate_source_db == expected_source
+    assert model.data.username is None
+    assert model.data.password is None
+    assert model.data.name is None
+
+
+def test_allocated_storage_is_preserved_for_snapshot_restore() -> None:
+    """Keep explicitly configured storage for snapshot restores."""
+    model = AppInterfaceInput.model_validate(
+        input_data({"data": {"snapshot_identifier": "test-snapshot"}})
+    )
+
+    assert model.data.allocated_storage == 20
+    assert model.data.username is None
+    assert model.data.password is None
+    assert model.data.name is None
+
+
+@pytest.mark.parametrize(
+    "source_config",
+    [
+        pytest.param(
+            {"replicate_source_db": "test-rds-source"},
+            id="replica",
+        ),
+        pytest.param(
+            {"snapshot_identifier": "test-snapshot"},
+            id="snapshot",
+        ),
+    ],
+)
+def test_null_allocated_storage_remains_unmanaged(source_config: dict) -> None:
+    """Do not manage storage when it is explicitly null."""
+    model = AppInterfaceInput.model_validate(
+        input_data({"data": source_config | {"allocated_storage": None}})
+    )
+
+    assert model.data.allocated_storage is None
+
+
+@pytest.mark.parametrize(
+    "source_config",
+    [
+        pytest.param(
+            {"replicate_source_db": "test-rds-source"},
+            id="replica",
+        ),
+        pytest.param(
+            {"snapshot_identifier": "test-snapshot"},
+            id="snapshot",
+        ),
+    ],
+)
+def test_omitted_allocated_storage_remains_unmanaged(source_config: dict) -> None:
+    """Do not manage storage when it is omitted from the input."""
+    mod_input = input_data({"data": source_config})
+    mod_input["data"].pop("allocated_storage")
+
+    model = AppInterfaceInput.model_validate(mod_input)
+
+    assert model.data.allocated_storage is None
+
+
 def test_same_region_replica_without_db_subnet_group_name() -> None:
     """Test same-region replica sets replicate_source_db to source identifier when db_subnet_group_name is not specified"""
     mod_input = input_data({

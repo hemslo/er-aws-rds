@@ -1,0 +1,29 @@
+name: rds-basic
+description: >
+  Create a standalone RDS instance as a simple end-to-end basic-path check.
+  Run this scenario with --keep when the instance is needed by another
+  integration test. The identifier is defined by the base input.
+
+base_input: integration-tests/basic/base_input.json
+
+steps:
+  - name: create database
+    action: Apply
+    dry_run: false
+    timeout_seconds: 3600
+    expect:
+      exit_code: 0
+      log_contains:
+        - "Apply complete!"
+      log_not_contains:
+        - "Error:"
+
+cleanup:
+  name: destroy database
+  action: Destroy
+  dry_run: false
+  timeout_seconds: 3600
+  expect:
+    exit_code: 0
+    log_contains:
+      - "Destroy complete!"

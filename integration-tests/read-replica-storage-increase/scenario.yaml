@@ -1,0 +1,57 @@
+name: rds-read-replica-storage-increase
+description: >
+  Create a read replica with explicit allocated storage, increase the storage
+  through a subsequent reconcile, and verify that a following reconcile is a
+  no-op. The base input should start with allocated_storage set to 20 GiB;
+  the increase step changes it to 30 GiB.
+
+base_input: integration-tests/read-replica-storage-increase/base_input.json
+
+steps:
+  - name: create read replica
+    action: Apply
+    dry_run: false
+    timeout_seconds: 3600
+    expect:
+      exit_code: 0
+      log_contains:
+        - "Apply complete!"
+      log_not_contains:
+        - "Error:"
+
+  - name: increase allocated storage
+    input:
+      allocated_storage: 30
+    action: Apply
+    dry_run: false
+    timeout_seconds: 3600
+    expect:
+      exit_code: 0
+      log_contains:
+        - "Apply complete!"
+      # The storage update must produce a Terraform change. This assertion
+      # makes the scenario fail when input normalization drops the value.
+      log_not_contains:
+        - "No changes."
+        - "Error:"
+
+  - name: verify steady state
+    action: Apply
+    dry_run: false
+    timeout_seconds: 3600
+    expect:
+      exit_code: 0
+      log_contains:
+        - "No changes."
+      log_not_contains:
+        - "Error:"
+
+cleanup:
+  name: destroy read replica
+  action: Destroy
+  dry_run: false
+  timeout_seconds: 3600
+  expect:
+    exit_code: 0
+    log_contains:
+      - "Destroy complete!"

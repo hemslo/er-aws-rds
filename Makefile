@@ -39,3 +39,7 @@ dev:
 .PHONY: providers-lock
 providers-lock:
 	terraform -chdir=module providers lock -platform=linux_amd64 -platform=linux_arm64 -platform=darwin_amd64 -platform=darwin_arm64
+
+.PHONY: integration-tests
+integration-tests:
+	uv run erv2-itest

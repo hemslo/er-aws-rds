@@ -225,13 +225,17 @@ class Rds(RdsAppInterface):
         """
         Some attributes are not allowed if the instance is a read replica or is created from a snapshot.
 
+        Read replicas initially inherit their allocated storage from the source
+        instance, but Terraform can use the configured value for subsequent
+        storage updates. Snapshot restores can apply the configured storage
+        after the restore completes.
+
         engine is not removed because it's needed in the plan validation.
         """
         if self.replica_source or self.replicate_source_db or self.snapshot_identifier:
             self.username = None
             self.password = None
             self.name = None
-            self.allocated_storage = None
         return self
 
     @model_validator(mode="after")
