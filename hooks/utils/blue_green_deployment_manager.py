@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from hooks.utils.blue_green_deployment_model import (
     POSTGRES_LOGICAL_REPLICATION_PARAMETER_NAME,
     TERMINAL_FAILURE_STATES,
+    TERMINAL_FAILURE_STATUS_STATES,
     BlueGreenDeploymentModel,
 )
 from hooks.utils.models import (
@@ -114,10 +115,11 @@ class BlueGreenDeploymentManager:
             if self.dry_run:
                 continue
             handler = self._action_handlers[action.type]
+            previous_state = self.model.state
             handler(action)
-            if self._wait_discovered_invalid_configuration(action.type):
-                self._handle_invalid_configuration()
-                return self.model.state
+            if self.model.state != previous_state:
+                self._raise_for_unhandled_terminal_failure()
+                return self._run_actions(self.model.plan_actions())
             self.model.state = action.next_state
         return self.model.state
 
@@ -252,11 +254,9 @@ class BlueGreenDeploymentManager:
         if self.model.blue_green_deployment is None:
             return False
         status = self.model.blue_green_deployment["Status"]
-        if status == "INVALID_CONFIGURATION":
-            self.model.state = State.INVALID_CONFIGURATION
+        if status in TERMINAL_FAILURE_STATUS_STATES:
+            self.model.state = TERMINAL_FAILURE_STATUS_STATES[status]
             return True
-        if status == "SWITCHOVER_FAILED":
-            raise self._switchover_failed_error(self.model.blue_green_deployment)
         self.model.target_db_instances = self._fetch_target_db_instances(
             self.model.blue_green_deployment
         )
@@ -265,7 +265,7 @@ class BlueGreenDeploymentManager:
     def _handle_wait_for_available(self, _: WaitForAvailableAction) -> None:
         wait_for(self._wait_for_available_condition, logger=self.logger)
         assert self.model
-        if self.model.state == State.INVALID_CONFIGURATION:
+        if self.model.state in TERMINAL_FAILURE_STATES:
             return
         endpoints = [
             endpoint
@@ -394,24 +394,6 @@ class BlueGreenDeploymentManager:
                 return
             raise self._invalid_configuration_error(self.model.blue_green_deployment)
         raise self._switchover_failed_error(self.model.blue_green_deployment)
-
-    def _handle_invalid_configuration(self) -> None:
-        assert self.model
-        assert self.model.blue_green_deployment
-        if not self.model.config.delete:
-            raise self._invalid_configuration_error(self.model.blue_green_deployment)
-        for action in self.model.plan_actions():
-            self.logger.info(f"Action {action.type}: {action.model_dump_json()}")
-            handler = self._action_handlers[action.type]
-            handler(action)
-            self.model.state = action.next_state
-
-    def _wait_discovered_invalid_configuration(self, action_type: ActionType) -> bool:
-        assert self.model
-        return (
-            action_type == ActionType.WAIT_FOR_AVAILABLE
-            and self.model.state == State.INVALID_CONFIGURATION
-        )
 
     def _invalid_configuration_error(
         self, deployment: BlueGreenDeploymentTypeDef

@@ -1153,9 +1153,28 @@ def test_run_for_read_replica_has_blue_green_deployment_enabled(
     )
 
 
-def test_invalid_configuration_during_availability_polling_fails_promptly(
+@pytest.mark.parametrize(
+    ("status", "status_details", "expected_instruction"),
+    [
+        (
+            "INVALID_CONFIGURATION",
+            "green database is still catching up",
+            "blue_green_deployment.delete: true",
+        ),
+        (
+            "SWITCHOVER_FAILED",
+            "replication is behind",
+            "blue_green_deployment.switchover: false",
+        ),
+    ],
+)
+def test_terminal_failure_during_availability_polling_fails_promptly(
     mock_aws_api: Mock,
     mock_logging: Mock,
+    *,
+    status: str,
+    status_details: str,
+    expected_instruction: str,
 ) -> None:
     """Report terminal AWS status details instead of waiting for availability."""
     del mock_logging
@@ -1167,9 +1186,9 @@ def test_invalid_configuration_during_availability_polling_fails_promptly(
                 status="PROVISIONING", switchover_details=[]
             ),
             build_blue_green_deployment_response(
-                status="INVALID_CONFIGURATION",
+                status=status,
                 switchover_details=[],
-                status_details="green database is still catching up",
+                status_details=status_details,
             ),
         ],
         get_db_parameter_group=[DEFAULT_TARGET_PARAMETER_GROUP],
@@ -1189,9 +1208,9 @@ def test_invalid_configuration_during_availability_polling_fails_promptly(
 
     message = str(error.value)
     assert "some-bg-id" in message
-    assert "INVALID_CONFIGURATION" in message
-    assert "green database is still catching up" in message
-    assert "blue_green_deployment.delete: true" in message
+    assert status in message
+    assert status_details in message
+    assert expected_instruction in message
     mock_aws_api.get_blue_green_deployment.assert_has_calls([
         call("test-rds"),
         call("test-rds"),
