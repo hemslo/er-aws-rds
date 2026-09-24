@@ -4,13 +4,16 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from hooks.utils.blue_green_deployment_model import (
     POSTGRES_LOGICAL_REPLICATION_PARAMETER_NAME,
+    TERMINAL_FAILURE_STATES,
     BlueGreenDeploymentModel,
 )
 from hooks.utils.models import (
     ActionType,
+    BaseAction,
     CreateAction,
     DeleteAction,
     DeleteSourceDBInstanceAction,
+    DeleteWithoutSwitchoverAction,
     NoOpAction,
     State,
     SwitchoverAction,
@@ -36,6 +39,8 @@ if TYPE_CHECKING:
     )
     from hooks.utils.aws_api import AWSApi
 
+AWS_DEFAULT_SWITCHOVER_TIMEOUT = 300
+
 
 class BlueGreenDeploymentManager:
     """Blue/Green Deployment Manager"""
@@ -53,6 +58,7 @@ class BlueGreenDeploymentManager:
         self.dry_run = dry_run
         self.logger = logging.getLogger(__name__)
         self.model: BlueGreenDeploymentModel | None = None
+        self._switchover_in_progress_observed = False
 
     @property
     def blue_green_deployment_name(self) -> str:
@@ -78,6 +84,11 @@ class BlueGreenDeploymentManager:
             return State.NOT_ENABLED
 
         self.model = self._build_model(input_data)
+        self._switchover_in_progress_observed = (
+            self.model.state == State.SWITCHOVER_IN_PROGRESS
+        )
+        self._raise_for_unhandled_terminal_failure()
+
         actions = self.model.plan_actions()
         if all(action.type == ActionType.NO_OP for action in actions):
             self.logger.info("No changes for Blue/Green Deployment.")
@@ -94,16 +105,37 @@ class BlueGreenDeploymentManager:
                     )
             return State.PENDING_PREPARE
 
+        return self._run_actions(actions)
+
+    def _run_actions(self, actions: list[BaseAction]) -> State:
+        assert self.model
         for action in actions:
             self.logger.info(f"Action {action.type}: {action.model_dump_json()}")
-            if not self.dry_run:
-                handler = self._action_handlers[action.type]
-                handler(action)
-                self.model.state = action.next_state
+            if self.dry_run:
+                continue
+            handler = self._action_handlers[action.type]
+            handler(action)
+            if self._wait_discovered_invalid_configuration(action.type):
+                self._handle_invalid_configuration()
+                return self.model.state
+            self.model.state = action.next_state
         return self.model.state
 
     def _build_model(self, input_data: Rds) -> BlueGreenDeploymentModel:
         assert input_data.blue_green_deployment
+        blue_green_deployment = self.aws_api.get_blue_green_deployment(
+            self.blue_green_deployment_name
+        )
+        if blue_green_deployment and blue_green_deployment["Status"] in {
+            "INVALID_CONFIGURATION",
+            "SWITCHOVER_FAILED",
+        }:
+            return BlueGreenDeploymentModel(
+                state=State.INIT,
+                input_data=input_data,
+                blue_green_deployment=blue_green_deployment,
+            )
+
         db_instance = self.aws_api.get_db_instance(input_data.identifier)
         valid_upgrade_targets = (
             self.aws_api.get_blue_green_deployment_valid_upgrade_targets(
@@ -123,9 +155,6 @@ class BlueGreenDeploymentManager:
             self.aws_api.get_db_parameter_group(target_parameter_group_name)
             if target_parameter_group_name
             else None
-        )
-        blue_green_deployment = self.aws_api.get_blue_green_deployment(
-            self.blue_green_deployment_name
         )
         source_db_instances = self._fetch_source_db_instances(blue_green_deployment)
         target_db_instances = self._fetch_target_db_instances(blue_green_deployment)
@@ -220,6 +249,14 @@ class BlueGreenDeploymentManager:
         self.model.blue_green_deployment = self.aws_api.get_blue_green_deployment(
             self.blue_green_deployment_name
         )
+        if self.model.blue_green_deployment is None:
+            return False
+        status = self.model.blue_green_deployment["Status"]
+        if status == "INVALID_CONFIGURATION":
+            self.model.state = State.INVALID_CONFIGURATION
+            return True
+        if status == "SWITCHOVER_FAILED":
+            raise self._switchover_failed_error(self.model.blue_green_deployment)
         self.model.target_db_instances = self._fetch_target_db_instances(
             self.model.blue_green_deployment
         )
@@ -228,6 +265,8 @@ class BlueGreenDeploymentManager:
     def _handle_wait_for_available(self, _: WaitForAvailableAction) -> None:
         wait_for(self._wait_for_available_condition, logger=self.logger)
         assert self.model
+        if self.model.state == State.INVALID_CONFIGURATION:
+            return
         endpoints = [
             endpoint
             for instance in self.model.target_db_instances
@@ -249,15 +288,49 @@ class BlueGreenDeploymentManager:
         self.model.blue_green_deployment = self.aws_api.get_blue_green_deployment(
             self.blue_green_deployment_name
         )
-        return (
-            self.model.blue_green_deployment is not None
-            and self.model.blue_green_deployment["Status"] == "SWITCHOVER_COMPLETED"
-        )
+        deployment = self.model.blue_green_deployment
+        if deployment is None:
+            return False
+        status = deployment["Status"]
+        if status == "SWITCHOVER_IN_PROGRESS":
+            self._switchover_in_progress_observed = True
+        elif status == "SWITCHOVER_FAILED":
+            raise self._switchover_failed_error(deployment)
+        elif status == "AVAILABLE" and self._switchover_in_progress_observed:
+            raise self._switchover_cancelled_error(deployment)
+        return status == "SWITCHOVER_COMPLETED"
 
     def _handle_wait_for_switchover_completed(
         self, _: WaitForSwitchoverCompletedAction
     ) -> None:
-        wait_for(self._wait_for_switchover_completed_condition, logger=self.logger)
+        assert self.model
+        timeout = self.model.config.switchover_timeout
+        timeout_seconds = (
+            timeout if timeout is not None else AWS_DEFAULT_SWITCHOVER_TIMEOUT
+        )
+        try:
+            wait_for(
+                self._wait_for_switchover_completed_condition,
+                logger=self.logger,
+                timeout=timeout_seconds,
+            )
+        except TimeoutError as error:
+            deployment = self.model.blue_green_deployment
+            identifier = (
+                deployment.get("BlueGreenDeploymentIdentifier")
+                or self.blue_green_deployment_name
+                if deployment
+                else self.blue_green_deployment_name
+            )
+            status = deployment.get("Status", "unknown") if deployment else "unknown"
+            details = self._status_details_suffix(deployment) if deployment else ""
+            raise TimeoutError(
+                f"Blue/Green deployment {identifier} did not complete switchover "
+                f"within {timeout_seconds} seconds; last observed status {status}"
+                f"{details}. Set blue_green_deployment.switchover: false while "
+                "replication catches up, then set it to true in a later run to "
+                "start a new attempt."
+            ) from error
 
     def _handle_delete_source_db_instance(
         self, _: DeleteSourceDBInstanceAction
@@ -289,7 +362,9 @@ class BlueGreenDeploymentManager:
         identifier = self.model.blue_green_deployment["BlueGreenDeploymentIdentifier"]
         self.aws_api.delete_blue_green_deployment(identifier)
 
-    def _handle_delete_without_switchover(self, _: DeleteAction) -> None:
+    def _handle_delete_without_switchover(
+        self, _: DeleteWithoutSwitchoverAction
+    ) -> None:
         assert self.model
         assert self.model.blue_green_deployment
         identifier = self.model.blue_green_deployment["BlueGreenDeploymentIdentifier"]
@@ -308,3 +383,82 @@ class BlueGreenDeploymentManager:
     @staticmethod
     def _handle_no_op(_: NoOpAction) -> None:
         return
+
+    def _raise_for_unhandled_terminal_failure(self) -> None:
+        assert self.model
+        if self.model.state not in TERMINAL_FAILURE_STATES:
+            return
+        assert self.model.blue_green_deployment
+        if self.model.state == State.INVALID_CONFIGURATION:
+            if self.model.config.delete:
+                return
+            raise self._invalid_configuration_error(self.model.blue_green_deployment)
+        raise self._switchover_failed_error(self.model.blue_green_deployment)
+
+    def _handle_invalid_configuration(self) -> None:
+        assert self.model
+        assert self.model.blue_green_deployment
+        if not self.model.config.delete:
+            raise self._invalid_configuration_error(self.model.blue_green_deployment)
+        for action in self.model.plan_actions():
+            self.logger.info(f"Action {action.type}: {action.model_dump_json()}")
+            handler = self._action_handlers[action.type]
+            handler(action)
+            self.model.state = action.next_state
+
+    def _wait_discovered_invalid_configuration(self, action_type: ActionType) -> bool:
+        assert self.model
+        return (
+            action_type == ActionType.WAIT_FOR_AVAILABLE
+            and self.model.state == State.INVALID_CONFIGURATION
+        )
+
+    def _invalid_configuration_error(
+        self, deployment: BlueGreenDeploymentTypeDef
+    ) -> RuntimeError:
+        identifier = (
+            deployment.get("BlueGreenDeploymentIdentifier")
+            or self.blue_green_deployment_name
+        )
+        details = self._status_details_suffix(deployment)
+        return RuntimeError(
+            f"Blue/Green deployment {identifier} has terminal status "
+            f"INVALID_CONFIGURATION{details}. Set blue_green_deployment.delete: "
+            "true to request cleanup."
+        )
+
+    def _switchover_failed_error(
+        self, deployment: BlueGreenDeploymentTypeDef
+    ) -> RuntimeError:
+        identifier = (
+            deployment.get("BlueGreenDeploymentIdentifier")
+            or self.blue_green_deployment_name
+        )
+        details = self._status_details_suffix(deployment)
+        return RuntimeError(
+            f"Blue/Green deployment {identifier} failed with status "
+            f"SWITCHOVER_FAILED{details}. Set blue_green_deployment.switchover: "
+            "false while replication catches up, then set it to true in a later "
+            "run to start a new attempt."
+        )
+
+    def _switchover_cancelled_error(
+        self, deployment: BlueGreenDeploymentTypeDef
+    ) -> RuntimeError:
+        identifier = (
+            deployment.get("BlueGreenDeploymentIdentifier")
+            or self.blue_green_deployment_name
+        )
+        details = self._status_details_suffix(deployment)
+        return RuntimeError(
+            f"Blue/Green deployment {identifier} returned to status AVAILABLE "
+            f"after SWITCHOVER_IN_PROGRESS; the switchover was cancelled or rolled "
+            f"back{details}. Set blue_green_deployment.switchover: false while "
+            "replication catches up, then set it to true in a later run to start "
+            "a new attempt."
+        )
+
+    @staticmethod
+    def _status_details_suffix(deployment: BlueGreenDeploymentTypeDef) -> str:
+        details = deployment.get("StatusDetails")
+        return f"; StatusDetails: {details}" if details else ""

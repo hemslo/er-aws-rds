@@ -34,6 +34,11 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 POSTGRES_LOGICAL_REPLICATION_PARAMETER_NAME = "rds.logical_replication"
+TERMINAL_FAILURE_STATUS_STATES = {
+    "INVALID_CONFIGURATION": State.INVALID_CONFIGURATION,
+    "SWITCHOVER_FAILED": State.SWITCHOVER_FAILED,
+}
+TERMINAL_FAILURE_STATES = frozenset(TERMINAL_FAILURE_STATUS_STATES.values())
 
 
 class BlueGreenDeploymentModel(BaseModel):
@@ -52,10 +57,22 @@ class BlueGreenDeploymentModel(BaseModel):
 
     @model_validator(mode="after")
     def _init_state(self) -> Self:
+        self._set_initial_state()
+        match self.state:
+            case State.INVALID_CONFIGURATION | State.SWITCHOVER_FAILED:
+                return self
+            case _:
+                self._validate_creation_requirements()
+        return self
+
+    def _set_initial_state(self) -> None:
         if self.blue_green_deployment is None:
             self.state = State.INIT
-            return self
-        match self.blue_green_deployment["Status"]:
+            return
+        status = self.blue_green_deployment["Status"]
+        match status:
+            case "INVALID_CONFIGURATION" | "SWITCHOVER_FAILED":
+                self.state = TERMINAL_FAILURE_STATUS_STATES[status]
             case "PROVISIONING":
                 self.state = State.PROVISIONING
             case "AVAILABLE":
@@ -80,7 +97,16 @@ class BlueGreenDeploymentModel(BaseModel):
                 self.state = State.DELETING
             case _ as status:
                 raise ValueError(f"Unexpected Blue/Green Deployment status: {status}")
-        return self
+
+    def _validate_creation_requirements(self) -> None:
+        self._validate_db_instance_exist()
+        self._validate_target_parameter_group()
+        self._validate_deletion_protection()
+        self._validate_backup_retention_period()
+        self._validate_version_upgrade()
+        self._validate_supported_engine_version()
+        self._validate_source_parameter_group_status()
+        self._validate_source_db_parameters()
 
     @property
     def config(self) -> BlueGreenDeployment:
@@ -88,13 +114,11 @@ class BlueGreenDeploymentModel(BaseModel):
         assert self.input_data.blue_green_deployment
         return self.input_data.blue_green_deployment
 
-    @model_validator(mode="after")
     def _validate_db_instance_exist(self) -> Self:
         if self.db_instance is None:
             raise ValueError(f"DB Instance not found: {self.input_data.identifier}")
         return self
 
-    @model_validator(mode="after")
     def _validate_target_parameter_group(self) -> Self:
         if (
             self.config.target
@@ -104,7 +128,6 @@ class BlueGreenDeploymentModel(BaseModel):
             self._pending_prepares.add(PendingPrepare.TARGET_PARAMETER_GROUP)
         return self
 
-    @model_validator(mode="after")
     def _validate_deletion_protection(self) -> Self:
         if self.db_instance and self.db_instance["DeletionProtection"]:
             if self.input_data.deletion_protection:
@@ -112,7 +135,6 @@ class BlueGreenDeploymentModel(BaseModel):
             self._pending_prepares.add(PendingPrepare.DELETION_PROTECTION)
         return self
 
-    @model_validator(mode="after")
     def _validate_backup_retention_period(self) -> Self:
         if self.db_instance and self.db_instance["BackupRetentionPeriod"] <= 0:
             if (
@@ -124,7 +146,6 @@ class BlueGreenDeploymentModel(BaseModel):
                 raise ValueError("backup_retention_period must be greater than 0")
         return self
 
-    @model_validator(mode="after")
     def _validate_version_upgrade(self) -> Self:
         target_engine_version = self._get_target_engine_version()
         if target_engine_version not in self.valid_upgrade_targets:
@@ -134,7 +155,6 @@ class BlueGreenDeploymentModel(BaseModel):
             )
         return self
 
-    @model_validator(mode="after")
     def _validate_supported_engine_version(self) -> Self:
         assert self.db_instance
         engine = self.db_instance["Engine"]
@@ -157,7 +177,6 @@ class BlueGreenDeploymentModel(BaseModel):
                 raise ValueError(f"Unsupported engine: {engine}")
         return self
 
-    @model_validator(mode="after")
     def _validate_source_parameter_group_status(self) -> Self:
         assert self.db_instance
         invalid_parameter_groups = [
@@ -171,7 +190,6 @@ class BlueGreenDeploymentModel(BaseModel):
             )
         return self
 
-    @model_validator(mode="after")
     def _validate_source_db_parameters(self) -> Self:
         """
         Validate source DB parameters.
@@ -342,6 +360,8 @@ class BlueGreenDeploymentModel(BaseModel):
             PROVISIONING --> AVAILABLE
             AVAILABLE --> SWITCHOVER_IN_PROGRESS
             AVAILABLE --> DELETING
+            INVALID_CONFIGURATION --> DELETING
+            SWITCHOVER_FAILED --> DELETING
             SWITCHOVER_IN_PROGRESS --> SWITCHOVER_COMPLETED
             SWITCHOVER_COMPLETED --> DELETING_SOURCE_DB_INSTANCES
             DELETING_SOURCE_DB_INSTANCES --> SOURCE_DB_INSTANCES_DELETED
@@ -360,9 +380,17 @@ class BlueGreenDeploymentModel(BaseModel):
                 self._route_provisioning,
                 [State.AVAILABLE],
             ),
+            State.INVALID_CONFIGURATION: (
+                self._route_terminal_failure,
+                [State.DELETING],
+            ),
             State.AVAILABLE: (
                 self._route_available,
                 [State.SWITCHOVER_IN_PROGRESS, State.DELETING],
+            ),
+            State.SWITCHOVER_FAILED: (
+                self._route_switchover_failed,
+                [],
             ),
             State.SWITCHOVER_IN_PROGRESS: (
                 self._route_switchover_in_progress,
@@ -429,6 +457,15 @@ class BlueGreenDeploymentModel(BaseModel):
                 type=ActionType.DELETE_WITHOUT_SWITCHOVER,
                 next_state=State.DELETING,
             )
+        return None
+
+    def _route_terminal_failure(self) -> BaseAction | None:
+        if self.config.delete:
+            return DeleteWithoutSwitchoverAction(next_state=State.DELETING)
+        return None
+
+    @staticmethod
+    def _route_switchover_failed() -> BaseAction | None:
         return None
 
     @staticmethod

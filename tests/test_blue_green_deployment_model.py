@@ -10,7 +10,7 @@ from er_aws_rds.input import (
     Rds,
 )
 from hooks.utils.blue_green_deployment_model import BlueGreenDeploymentModel
-from hooks.utils.models import PendingPrepare, State
+from hooks.utils.models import ActionType, PendingPrepare, State
 from tests.conftest import (
     DEFAULT_RDS_INSTANCE,
     DEFAULT_SOURCE_DB_PARAMETERS,
@@ -53,6 +53,38 @@ def test_validate_db_instance_exist() -> None:
             input_data=build_blue_green_deployment_input_data(),
             db_instance=None,
         )
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_state"),
+    [
+        ("INVALID_CONFIGURATION", State.INVALID_CONFIGURATION),
+        ("SWITCHOVER_FAILED", State.SWITCHOVER_FAILED),
+    ],
+)
+def test_terminal_failure_state_can_plan_cleanup_without_creation_data(
+    status: str,
+    expected_state: State,
+) -> None:
+    """Terminal deployment failures skip creation validation for explicit cleanup."""
+    model = BlueGreenDeploymentModel(
+        state=State.INIT,
+        input_data=build_blue_green_deployment_input_data(delete=True),
+        blue_green_deployment={
+            "BlueGreenDeploymentIdentifier": "some-bg-id",
+            "Status": status,
+        },
+    )
+
+    assert model.state == expected_state
+    actions = [action.type for action in model.plan_actions()]
+    if status == "INVALID_CONFIGURATION":
+        assert actions == [
+            ActionType.DELETE_WITHOUT_SWITCHOVER,
+            ActionType.WAIT_FOR_DELETED,
+        ]
+    else:
+        assert actions == []
 
 
 def test_validate_target_parameter_group() -> None:

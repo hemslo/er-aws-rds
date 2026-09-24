@@ -42,8 +42,10 @@ def main() -> None:
             State.INIT
             | State.REPLICA_SOURCE_ENABLED
             | State.PROVISIONING
+            | State.INVALID_CONFIGURATION
             | State.AVAILABLE
             | State.SWITCHOVER_IN_PROGRESS
+            | State.SWITCHOVER_FAILED
             | State.SWITCHOVER_COMPLETED
             | State.DELETING_SOURCE_DB_INSTANCES
             | State.SOURCE_DB_INSTANCES_DELETED
