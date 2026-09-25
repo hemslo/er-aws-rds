@@ -1385,17 +1385,26 @@ def test_delete_invalid_configuration_propagates_aws_error(
 
 
 @pytest.mark.parametrize(
-    ("poll_status", "expected_message"),
+    ("initial_status", "poll_statuses", "expected_message"),
     [
-        ("SWITCHOVER_FAILED", "SWITCHOVER_FAILED"),
-        ("AVAILABLE", "cancelled or rolled back"),
+        (
+            "SWITCHOVER_IN_PROGRESS",
+            ["SWITCHOVER_FAILED"],
+            "SWITCHOVER_FAILED",
+        ),
+        (
+            "AVAILABLE",
+            ["SWITCHOVER_IN_PROGRESS", "AVAILABLE"],
+            "cancelled or rolled back",
+        ),
     ],
 )
 def test_failed_or_cancelled_switchover_does_not_delete_source(
     mock_aws_api: Mock,
     mock_logging: Mock,
     *,
-    poll_status: str,
+    initial_status: str,
+    poll_statuses: list[str],
     expected_message: str,
 ) -> None:
     """Stop before source deletion if AWS fails or cancels the switchover."""
@@ -1408,11 +1417,14 @@ def test_failed_or_cancelled_switchover_does_not_delete_source(
             DEFAULT_TARGET_RDS_INSTANCE,
         ],
         get_blue_green_deployment=[
-            build_blue_green_deployment_response(status="SWITCHOVER_IN_PROGRESS"),
-            build_blue_green_deployment_response(
-                status=poll_status,
-                status_details="green database is still catching up",
-            ),
+            build_blue_green_deployment_response(status=initial_status),
+            *[
+                build_blue_green_deployment_response(
+                    status=status,
+                    status_details="green database is still catching up",
+                )
+                for status in poll_statuses
+            ],
         ],
         get_db_parameter_group=[DEFAULT_TARGET_PARAMETER_GROUP],
         get_blue_green_deployment_valid_upgrade_targets=[DEFAULT_VALID_UPGRADE_TARGETS],
@@ -1426,7 +1438,24 @@ def test_failed_or_cancelled_switchover_does_not_delete_source(
         dry_run=False,
     )
 
-    with pytest.raises(RuntimeError, match=expected_message) as error:
+    def no_sleep_wait_for(
+        condition: Callable[[], bool],
+        *,
+        logger: Logger,
+        timeout: int | None = None,
+        interval: int = 60,
+    ) -> None:
+        del logger, timeout, interval
+        while not condition():
+            pass
+
+    with (
+        patch(
+            "hooks.utils.blue_green_deployment_manager.wait_for",
+            side_effect=no_sleep_wait_for,
+        ),
+        pytest.raises(RuntimeError, match=expected_message) as error,
+    ):
         manager.run()
 
     assert "green database is still catching up" in str(error.value)
