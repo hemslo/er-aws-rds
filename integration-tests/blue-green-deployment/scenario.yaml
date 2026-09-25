@@ -1,13 +1,25 @@
 name: rds-blue-green-deployment
 description: >
-  Exercise the RDS Blue/Green create, switchover, and cleanup lifecycle. Keep
-  switchover disabled while the green instance is provisioned, then switch to
-  the green instance and remove the old source and Blue/Green deployment.
+  Exercise a PostgreSQL 16.14 to 17.11 major-version upgrade with RDS
+  Blue/Green Deployment. Keep switchover disabled while the green instance is
+  provisioned, then switch to green and remove the old source and deployment.
 
 base_input: integration-tests/basic/base_input.json
 
 steps:
   - name: create database
+    input:
+      blue_green_deployment:
+        enabled: false
+        target:
+          parameter_group:
+            name: erv2-tests-postgres-17
+            description: Parameter Group for PostgreSQL 17
+            family: postgres17
+            parameters:
+              - name: rds.logical_replication
+                value: 1
+                apply_method: pending-reboot
     action: Apply
     timeout_seconds: 3600
     expect:
@@ -23,25 +35,53 @@ steps:
         enabled: true
         switchover: false
         target:
+          engine_version: "17.11"
           instance_class: db.t4g.micro
+          parameter_group:
+            name: erv2-tests-postgres-17
+            description: Parameter Group for PostgreSQL 17
+            family: postgres17
+            parameters:
+              - name: rds.logical_replication
+                value: 1
+                apply_method: pending-reboot
     action: Apply
     timeout_seconds: 7200
     expect:
       exit_code: 42
       log_contains:
         - "Blue/Green Deployment in progress, skip all other steps"
+        - '"engine_version":"17.11"'
       log_not_contains:
         - "Error:"
 
   - name: switchover and remove blue green deployment
     input:
+      engine_version: "17.11"
       instance_class: db.t4g.micro
+      parameter_group:
+        name: erv2-tests-postgres-17
+        description: Parameter Group for PostgreSQL 17
+        family: postgres17
+        parameters:
+          - name: rds.logical_replication
+            value: 1
+            apply_method: pending-reboot
       blue_green_deployment:
         enabled: true
         switchover: true
         delete: true
         target:
+          engine_version: "17.11"
           instance_class: db.t4g.micro
+          parameter_group:
+            name: erv2-tests-postgres-17
+            description: Parameter Group for PostgreSQL 17
+            family: postgres17
+            parameters:
+              - name: rds.logical_replication
+                value: 1
+                apply_method: pending-reboot
     action: Apply
     timeout_seconds: 7200
     expect:
@@ -52,6 +92,17 @@ steps:
         - "Error:"
 
   - name: verify steady state
+    input:
+      engine_version: "17.11"
+      instance_class: db.t4g.micro
+      parameter_group:
+        name: erv2-tests-postgres-17
+        description: Parameter Group for PostgreSQL 17
+        family: postgres17
+        parameters:
+          - name: rds.logical_replication
+            value: 1
+            apply_method: pending-reboot
     action: Apply
     timeout_seconds: 3600
     expect:
@@ -64,13 +115,31 @@ steps:
 cleanup:
   name: destroy database
   input:
+    engine_version: "17.11"
     instance_class: db.t4g.micro
+    parameter_group:
+      name: erv2-tests-postgres-17
+      description: Parameter Group for PostgreSQL 17
+      family: postgres17
+      parameters:
+        - name: rds.logical_replication
+          value: 1
+          apply_method: pending-reboot
     blue_green_deployment:
       enabled: true
       switchover: false
       delete: true
       target:
+        engine_version: "17.11"
         instance_class: db.t4g.micro
+        parameter_group:
+          name: erv2-tests-postgres-17
+          description: Parameter Group for PostgreSQL 17
+          family: postgres17
+          parameters:
+            - name: rds.logical_replication
+              value: 1
+              apply_method: pending-reboot
   action: Destroy
   timeout_seconds: 3600
   expect:
