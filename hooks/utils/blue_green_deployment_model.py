@@ -38,7 +38,10 @@ TERMINAL_FAILURE_STATUS_STATES = {
     "INVALID_CONFIGURATION": State.INVALID_CONFIGURATION,
     "SWITCHOVER_FAILED": State.SWITCHOVER_FAILED,
 }
-TERMINAL_FAILURE_STATES = frozenset(TERMINAL_FAILURE_STATUS_STATES.values())
+TERMINAL_FAILURE_STATES = frozenset({
+    *TERMINAL_FAILURE_STATUS_STATES.values(),
+    State.SWITCHOVER_CANCELLED,
+})
 
 
 class BlueGreenDeploymentModel(BaseModel):
@@ -358,17 +361,21 @@ class BlueGreenDeploymentModel(BaseModel):
             INIT --> NO_OP
             INIT --> PROVISIONING
             PROVISIONING --> AVAILABLE
-            AVAILABLE --> SWITCHOVER_IN_PROGRESS
+            AVAILABLE --> SWITCHOVER_REQUESTED
             AVAILABLE --> DELETING
             INVALID_CONFIGURATION --> DELETING
             SWITCHOVER_FAILED --> DELETING
+            SWITCHOVER_REQUESTED --> SWITCHOVER_IN_PROGRESS
+            SWITCHOVER_REQUESTED --> SWITCHOVER_COMPLETED
             SWITCHOVER_IN_PROGRESS --> SWITCHOVER_COMPLETED
+            SWITCHOVER_IN_PROGRESS --> SWITCHOVER_CANCELLED
             SWITCHOVER_COMPLETED --> DELETING_SOURCE_DB_INSTANCES
             DELETING_SOURCE_DB_INSTANCES --> SOURCE_DB_INSTANCES_DELETED
             SOURCE_DB_INSTANCES_DELETED --> DELETING
             DELETING --> NO_OP
             NO_OP --> END
             AVAILABLE --> END
+            SWITCHOVER_CANCELLED --> END
             SWITCHOVER_COMPLETED --> END
         """
         return {
@@ -386,15 +393,23 @@ class BlueGreenDeploymentModel(BaseModel):
             ),
             State.AVAILABLE: (
                 self._route_available,
-                [State.SWITCHOVER_IN_PROGRESS, State.DELETING],
+                [State.SWITCHOVER_REQUESTED, State.DELETING],
+            ),
+            State.SWITCHOVER_REQUESTED: (
+                self._route_wait_for_switchover_completion,
+                [State.SWITCHOVER_COMPLETED],
             ),
             State.SWITCHOVER_FAILED: (
                 self._route_switchover_failed,
                 [],
             ),
             State.SWITCHOVER_IN_PROGRESS: (
-                self._route_switchover_in_progress,
+                self._route_wait_for_switchover_completion,
                 [State.SWITCHOVER_COMPLETED],
+            ),
+            State.SWITCHOVER_CANCELLED: (
+                self._route_switchover_cancelled,
+                [],
             ),
             State.SWITCHOVER_COMPLETED: (
                 self._route_switchover_completed,
@@ -450,7 +465,7 @@ class BlueGreenDeploymentModel(BaseModel):
         if self.config.switchover:
             return SwitchoverAction(
                 type=ActionType.SWITCHOVER,
-                next_state=State.SWITCHOVER_IN_PROGRESS,
+                next_state=State.SWITCHOVER_REQUESTED,
             )
         if self.config.delete:
             return DeleteWithoutSwitchoverAction(
@@ -469,11 +484,15 @@ class BlueGreenDeploymentModel(BaseModel):
         return None
 
     @staticmethod
-    def _route_switchover_in_progress() -> BaseAction | None:
+    def _route_wait_for_switchover_completion() -> BaseAction | None:
         return WaitForSwitchoverCompletedAction(
             type=ActionType.WAIT_FOR_SWITCHOVER_COMPLETED,
             next_state=State.SWITCHOVER_COMPLETED,
         )
+
+    @staticmethod
+    def _route_switchover_cancelled() -> BaseAction | None:
+        return None
 
     def _route_switchover_completed(self) -> BaseAction | None:
         if self.config.delete:

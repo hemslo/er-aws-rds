@@ -558,7 +558,7 @@ def test_run_when_switchover(
     additional_data = build_blue_green_deployment_data(enabled=True, switchover=True)
     expected_switchover_action = SwitchoverAction(
         type=ActionType.SWITCHOVER,
-        next_state=State.SWITCHOVER_IN_PROGRESS,
+        next_state=State.SWITCHOVER_REQUESTED,
     )
     expected_wait_for_switchover_action = WaitForSwitchoverCompletedAction(
         type=ActionType.WAIT_FOR_SWITCHOVER_COMPLETED,
@@ -1038,7 +1038,7 @@ def test_run_when_all_in_one_config(
     )
     expected_switchover_action = SwitchoverAction(
         type=ActionType.SWITCHOVER,
-        next_state=State.SWITCHOVER_IN_PROGRESS,
+        next_state=State.SWITCHOVER_REQUESTED,
     )
     expected_wait_for_switchover_action = WaitForSwitchoverCompletedAction(
         type=ActionType.WAIT_FOR_SWITCHOVER_COMPLETED,
@@ -1459,6 +1459,14 @@ def test_failed_or_cancelled_switchover_does_not_delete_source(
         manager.run()
 
     assert "green database is still catching up" in str(error.value)
+    assert manager.model is not None
+    assert (
+        manager.model.state
+        == {
+            "SWITCHOVER_IN_PROGRESS": State.SWITCHOVER_FAILED,
+            "AVAILABLE": State.SWITCHOVER_CANCELLED,
+        }[initial_status]
+    )
     mock_aws_api.delete_db_instance.assert_not_called()
     mock_aws_api.delete_blue_green_deployment.assert_not_called()
 

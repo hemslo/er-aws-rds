@@ -281,10 +281,6 @@ class BlueGreenDeploymentManager:
 
     def _wait_for_switchover_completed_condition(self) -> bool:
         assert self.model
-        previous_deployment = self.model.blue_green_deployment
-        previous_status = (
-            previous_deployment["Status"] if previous_deployment is not None else None
-        )
         deployment = self.aws_api.get_blue_green_deployment(
             self.blue_green_deployment_name
         )
@@ -292,11 +288,22 @@ class BlueGreenDeploymentManager:
             return False
         self.model.blue_green_deployment = deployment
         status = deployment["Status"]
-        if status == "SWITCHOVER_FAILED":
-            raise self._switchover_failed_error(deployment)
-        if status == "AVAILABLE" and previous_status == "SWITCHOVER_IN_PROGRESS":
-            raise self._switchover_cancelled_error(deployment)
-        return status == "SWITCHOVER_COMPLETED"
+        match status, self.model.state:
+            case "SWITCHOVER_FAILED", _:
+                self.model.state = State.SWITCHOVER_FAILED
+                completed = True
+            case "SWITCHOVER_IN_PROGRESS", _:
+                self.model.state = State.SWITCHOVER_IN_PROGRESS
+                completed = False
+            case "AVAILABLE", State.SWITCHOVER_IN_PROGRESS:
+                self.model.state = State.SWITCHOVER_CANCELLED
+                completed = True
+            case "SWITCHOVER_COMPLETED", _:
+                self.model.state = State.SWITCHOVER_COMPLETED
+                completed = True
+            case _:
+                completed = False
+        return completed
 
     def _handle_wait_for_switchover_completed(
         self, _: WaitForSwitchoverCompletedAction
@@ -387,11 +394,17 @@ class BlueGreenDeploymentManager:
         if self.model.state not in TERMINAL_FAILURE_STATES:
             return
         assert self.model.blue_green_deployment
-        if self.model.state == State.INVALID_CONFIGURATION:
-            if self.model.config.delete:
-                return
-            raise self._invalid_configuration_error(self.model.blue_green_deployment)
-        raise self._switchover_failed_error(self.model.blue_green_deployment)
+        match self.model.state:
+            case State.INVALID_CONFIGURATION:
+                if self.model.config.delete:
+                    return
+                raise self._invalid_configuration_error(
+                    self.model.blue_green_deployment
+                )
+            case State.SWITCHOVER_FAILED:
+                raise self._switchover_failed_error(self.model.blue_green_deployment)
+            case State.SWITCHOVER_CANCELLED:
+                raise self._switchover_cancelled_error(self.model.blue_green_deployment)
 
     def _invalid_configuration_error(
         self, deployment: BlueGreenDeploymentTypeDef

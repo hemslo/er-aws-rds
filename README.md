@@ -133,6 +133,20 @@ erv2-itest \
 Do not pass `--keep` to the cleanup command. The scenario logs and working
 directories are stored under `.erv2-itests/`.
 
+The Blue/Green scenario creates a green instance with switchover disabled, then
+switches over and removes the old source and Blue/Green deployment before
+checking steady state and destroying the database:
+
+```shell
+erv2-itest integration-tests/blue-green-deployment/scenario.yaml
+```
+
+Its cleanup step sets `delete: true` with switchover disabled before destroying
+the database. If a switchover fails, the manager preserves the source instance;
+retain the run ID and use the manual cleanup procedure if the scenario's cleanup
+also fails. The normal lifecycle scenario does not by itself verify that AWS
+accepts deletion in `INVALID_CONFIGURATION`; verify that path in non-production.
+
 ### On Host
 
 Generate terraform config.

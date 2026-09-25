@@ -1,0 +1,81 @@
+name: rds-blue-green-deployment
+description: >
+  Exercise the RDS Blue/Green create, switchover, and cleanup lifecycle. Keep
+  switchover disabled while the green instance is provisioned, then switch to
+  the green instance and remove the old source and Blue/Green deployment.
+
+base_input: integration-tests/basic/base_input.json
+
+steps:
+  - name: create database
+    action: Apply
+    timeout_seconds: 3600
+    expect:
+      exit_code: 0
+      log_contains:
+        - "Apply complete!"
+      log_not_contains:
+        - "Error:"
+
+  - name: create blue green deployment
+    input:
+      blue_green_deployment:
+        enabled: true
+        switchover: false
+        target:
+          instance_class: db.t4g.small
+    action: Apply
+    timeout_seconds: 7200
+    expect:
+      exit_code: 42
+      log_contains:
+        - "Blue/Green Deployment in progress, skip all other steps"
+      log_not_contains:
+        - "Error:"
+
+  - name: switchover and remove blue green deployment
+    input:
+      instance_class: db.t4g.small
+      blue_green_deployment:
+        enabled: true
+        switchover: true
+        delete: true
+        target:
+          instance_class: db.t4g.small
+    action: Apply
+    timeout_seconds: 7200
+    expect:
+      exit_code: 0
+      log_contains:
+        - "Apply complete!"
+      log_not_contains:
+        - "Error:"
+
+  - name: verify steady state
+    action: Apply
+    timeout_seconds: 3600
+    expect:
+      exit_code: 0
+      log_contains:
+        - "No changes."
+      log_not_contains:
+        - "Error:"
+
+cleanup:
+  name: destroy database
+  input:
+    instance_class: db.t4g.small
+    blue_green_deployment:
+      enabled: true
+      switchover: false
+      delete: true
+      target:
+        instance_class: db.t4g.small
+  action: Destroy
+  timeout_seconds: 3600
+  expect:
+    exit_code: 0
+    log_contains:
+      - "Destroy complete!"
+    log_not_contains:
+      - "Error:"
