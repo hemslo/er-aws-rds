@@ -48,7 +48,7 @@ steps:
     action: Apply
     timeout_seconds: 7200
     expect:
-      exit_code: 42
+      exit_code: 0
       log_contains:
         - "Blue/Green Deployment in progress, skip all other steps"
         - '"engine_version":"17.11"'
