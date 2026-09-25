@@ -1,8 +1,8 @@
-name: rds-blue-green-major-upgrade-switchover
+name: rds-blue-green-major-upgrade-abort
 description: >
   Exercise a PostgreSQL 16.14 to 17.11 major-version upgrade with RDS
-  Blue/Green Deployment, switch to green, remove the old source and deployment,
-  then verify the upgraded instance is in steady state.
+  Blue/Green Deployment, delete the green deployment without switchover, and
+  verify the PostgreSQL 16 source remains unchanged.
 
 base_input: integration-tests/blue-green-deployment/base_input.json
 
@@ -55,21 +55,11 @@ steps:
       log_not_contains:
         - "Error:"
 
-  - name: switchover and remove blue green deployment
+  - name: abort without switchover
     input:
-      engine_version: "17.11"
-      instance_class: db.t4g.micro
-      parameter_group:
-        name: erv2-tests-postgres-17
-        description: Parameter Group for PostgreSQL 17
-        family: postgres17
-        parameters:
-          - name: rds.logical_replication
-            value: 1
-            apply_method: pending-reboot
       blue_green_deployment:
         enabled: true
-        switchover: true
+        switchover: false
         delete: true
         target:
           engine_version: "17.11"
@@ -87,22 +77,24 @@ steps:
     expect:
       exit_code: 0
       log_contains:
-        - "Apply complete!"
+        - "Action delete_without_switchover:"
+        - "No changes."
       log_not_contains:
         - "Error:"
 
-  - name: verify steady state
+  - name: verify source remains unchanged
     input:
-      engine_version: "17.11"
-      instance_class: db.t4g.micro
-      parameter_group:
-        name: erv2-tests-postgres-17
-        description: Parameter Group for PostgreSQL 17
-        family: postgres17
-        parameters:
-          - name: rds.logical_replication
-            value: 1
-            apply_method: pending-reboot
+      blue_green_deployment:
+        enabled: false
+        target:
+          parameter_group:
+            name: erv2-tests-postgres-17
+            description: Parameter Group for PostgreSQL 17
+            family: postgres17
+            parameters:
+              - name: rds.logical_replication
+                value: 1
+                apply_method: pending-reboot
     action: Apply
     timeout_seconds: 3600
     expect:
@@ -115,16 +107,6 @@ steps:
 cleanup:
   name: destroy database
   input:
-    engine_version: "17.11"
-    instance_class: db.t4g.micro
-    parameter_group:
-      name: erv2-tests-postgres-17
-      description: Parameter Group for PostgreSQL 17
-      family: postgres17
-      parameters:
-        - name: rds.logical_replication
-          value: 1
-          apply_method: pending-reboot
     blue_green_deployment:
       enabled: true
       switchover: false
