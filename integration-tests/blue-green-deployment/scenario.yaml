@@ -23,7 +23,7 @@ steps:
         enabled: true
         switchover: false
         target:
-          instance_class: db.t4g.small
+          instance_class: db.t4g.micro
     action: Apply
     timeout_seconds: 7200
     expect:
@@ -35,13 +35,13 @@ steps:
 
   - name: switchover and remove blue green deployment
     input:
-      instance_class: db.t4g.small
+      instance_class: db.t4g.micro
       blue_green_deployment:
         enabled: true
         switchover: true
         delete: true
         target:
-          instance_class: db.t4g.small
+          instance_class: db.t4g.micro
     action: Apply
     timeout_seconds: 7200
     expect:
@@ -64,13 +64,13 @@ steps:
 cleanup:
   name: destroy database
   input:
-    instance_class: db.t4g.small
+    instance_class: db.t4g.micro
     blue_green_deployment:
       enabled: true
       switchover: false
       delete: true
       target:
-        instance_class: db.t4g.small
+        instance_class: db.t4g.micro
   action: Destroy
   timeout_seconds: 3600
   expect:
