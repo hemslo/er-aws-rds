@@ -59,7 +59,6 @@ class BlueGreenDeploymentManager:
         self.dry_run = dry_run
         self.logger = logging.getLogger(__name__)
         self.model: BlueGreenDeploymentModel | None = None
-        self._switchover_in_progress_observed = False
 
     @property
     def blue_green_deployment_name(self) -> str:
@@ -85,9 +84,6 @@ class BlueGreenDeploymentManager:
             return State.NOT_ENABLED
 
         self.model = self._build_model(input_data)
-        self._switchover_in_progress_observed = (
-            self.model.state == State.SWITCHOVER_IN_PROGRESS
-        )
         self._raise_for_unhandled_terminal_failure()
 
         actions = self.model.plan_actions()
@@ -283,34 +279,41 @@ class BlueGreenDeploymentManager:
             timeout=self.model.config.switchover_timeout,
         )
 
-    def _wait_for_switchover_completed_condition(self) -> bool:
-        assert self.model
-        self.model.blue_green_deployment = self.aws_api.get_blue_green_deployment(
-            self.blue_green_deployment_name
-        )
-        deployment = self.model.blue_green_deployment
-        if deployment is None:
-            return False
-        status = deployment["Status"]
-        if status == "SWITCHOVER_IN_PROGRESS":
-            self._switchover_in_progress_observed = True
-        elif status == "SWITCHOVER_FAILED":
-            raise self._switchover_failed_error(deployment)
-        elif status == "AVAILABLE" and self._switchover_in_progress_observed:
-            raise self._switchover_cancelled_error(deployment)
-        return status == "SWITCHOVER_COMPLETED"
-
     def _handle_wait_for_switchover_completed(
         self, _: WaitForSwitchoverCompletedAction
     ) -> None:
         assert self.model
+        initial_deployment = self.model.blue_green_deployment
+        switchover_in_progress_observed = (
+            initial_deployment is not None
+            and initial_deployment["Status"] == "SWITCHOVER_IN_PROGRESS"
+        )
         timeout = self.model.config.switchover_timeout
         timeout_seconds = (
             timeout if timeout is not None else AWS_DEFAULT_SWITCHOVER_TIMEOUT
         )
+
+        def wait_for_switchover_completed_condition() -> bool:
+            nonlocal switchover_in_progress_observed
+            assert self.model
+            self.model.blue_green_deployment = self.aws_api.get_blue_green_deployment(
+                self.blue_green_deployment_name
+            )
+            deployment = self.model.blue_green_deployment
+            if deployment is None:
+                return False
+            status = deployment["Status"]
+            if status == "SWITCHOVER_IN_PROGRESS":
+                switchover_in_progress_observed = True
+            elif status == "SWITCHOVER_FAILED":
+                raise self._switchover_failed_error(deployment)
+            elif status == "AVAILABLE" and switchover_in_progress_observed:
+                raise self._switchover_cancelled_error(deployment)
+            return status == "SWITCHOVER_COMPLETED"
+
         try:
             wait_for(
-                self._wait_for_switchover_completed_condition,
+                wait_for_switchover_completed_condition,
                 logger=self.logger,
                 timeout=timeout_seconds,
             )
