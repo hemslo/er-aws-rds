@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
     from mypy_boto3_rds.type_defs import (
         BlueGreenDeploymentTypeDef,
@@ -63,20 +63,25 @@ def build_blue_green_deployment_response(
     *,
     status: str,
     switchover_details: list[SwitchoverDetailTypeDef] | None = None,
+    status_details: str | None = None,
 ) -> BlueGreenDeploymentTypeDef:
     """Build blue/green deployment response"""
     return {
         "BlueGreenDeploymentName": "test-rds",
         "BlueGreenDeploymentIdentifier": "some-bg-id",
         "Status": status,
-        "SwitchoverDetails": switchover_details
-        or [
-            {
-                "SourceMember": "some-arn-old",
-                "TargetMember": "some-arn-new",
-                "Status": status,
-            }
-        ],
+        "SwitchoverDetails": (
+            switchover_details
+            if switchover_details is not None
+            else [
+                {
+                    "SourceMember": "some-arn-old",
+                    "TargetMember": "some-arn-new",
+                    "Status": status,
+                }
+            ]
+        ),
+        **({"StatusDetails": status_details} if status_details else {}),
     }
 
 
@@ -553,7 +558,7 @@ def test_run_when_switchover(
     additional_data = build_blue_green_deployment_data(enabled=True, switchover=True)
     expected_switchover_action = SwitchoverAction(
         type=ActionType.SWITCHOVER,
-        next_state=State.SWITCHOVER_IN_PROGRESS,
+        next_state=State.SWITCHOVER_REQUESTED,
     )
     expected_wait_for_switchover_action = WaitForSwitchoverCompletedAction(
         type=ActionType.WAIT_FOR_SWITCHOVER_COMPLETED,
@@ -1033,7 +1038,7 @@ def test_run_when_all_in_one_config(
     )
     expected_switchover_action = SwitchoverAction(
         type=ActionType.SWITCHOVER,
-        next_state=State.SWITCHOVER_IN_PROGRESS,
+        next_state=State.SWITCHOVER_REQUESTED,
     )
     expected_wait_for_switchover_action = WaitForSwitchoverCompletedAction(
         type=ActionType.WAIT_FOR_SWITCHOVER_COMPLETED,
@@ -1146,3 +1151,468 @@ def test_run_for_read_replica_has_blue_green_deployment_enabled(
     mock_logging.info.assert_called_once_with(
         "blue_green_deployment in replica_source enabled."
     )
+
+
+@pytest.mark.parametrize(
+    ("status", "status_details", "expected_instruction"),
+    [
+        (
+            "INVALID_CONFIGURATION",
+            "green database is still catching up",
+            "blue_green_deployment.delete: true",
+        ),
+        (
+            "SWITCHOVER_FAILED",
+            "replication is behind",
+            "blue_green_deployment.delete: true",
+        ),
+    ],
+)
+def test_terminal_failure_during_availability_polling_fails_promptly(
+    mock_aws_api: Mock,
+    mock_logging: Mock,
+    *,
+    status: str,
+    status_details: str,
+    expected_instruction: str,
+) -> None:
+    """Report terminal AWS status details instead of waiting for availability."""
+    del mock_logging
+    setup_aws_api_side_effects(
+        mock_aws_api,
+        get_db_instance=[DEFAULT_RDS_INSTANCE],
+        get_blue_green_deployment=[
+            build_blue_green_deployment_response(
+                status="PROVISIONING", switchover_details=[]
+            ),
+            build_blue_green_deployment_response(
+                status=status,
+                switchover_details=[],
+                status_details=status_details,
+            ),
+        ],
+        get_db_parameter_group=[DEFAULT_TARGET_PARAMETER_GROUP],
+        get_blue_green_deployment_valid_upgrade_targets=[DEFAULT_VALID_UPGRADE_TARGETS],
+        get_db_parameters=[DEFAULT_SOURCE_DB_PARAMETERS],
+    )
+    manager = BlueGreenDeploymentManager(
+        aws_api=mock_aws_api,
+        app_interface_input=input_object(
+            build_blue_green_deployment_data(enabled=True)
+        ),
+        dry_run=False,
+    )
+
+    with pytest.raises(RuntimeError) as error:
+        manager.run()
+
+    message = str(error.value)
+    assert "some-bg-id" in message
+    assert status in message
+    assert status_details in message
+    assert expected_instruction in message
+    mock_aws_api.get_blue_green_deployment.assert_has_calls([
+        call("test-rds"),
+        call("test-rds"),
+    ])
+    mock_aws_api.delete_blue_green_deployment.assert_not_called()
+
+
+def test_fresh_invalid_configuration_requires_explicit_delete(
+    mock_aws_api: Mock,
+    mock_logging: Mock,
+) -> None:
+    """Do not run creation checks or cleanup unless delete is requested."""
+    del mock_logging
+    setup_aws_api_side_effects(
+        mock_aws_api,
+        get_blue_green_deployment=[
+            build_blue_green_deployment_response(
+                status="INVALID_CONFIGURATION",
+                status_details="target is invalid",
+            )
+        ],
+    )
+    manager = BlueGreenDeploymentManager(
+        aws_api=mock_aws_api,
+        app_interface_input=input_object(
+            build_blue_green_deployment_data(enabled=True)
+        ),
+        dry_run=False,
+    )
+
+    with pytest.raises(RuntimeError, match=r"blue_green_deployment\.delete: true"):
+        manager.run()
+
+    mock_aws_api.get_db_instance.assert_not_called()
+    mock_aws_api.get_blue_green_deployment_valid_upgrade_targets.assert_not_called()
+    mock_aws_api.get_db_parameter_group.assert_not_called()
+    mock_aws_api.delete_blue_green_deployment.assert_not_called()
+
+
+def test_fresh_failed_switchover_requires_explicit_delete(
+    mock_aws_api: Mock,
+    mock_logging: Mock,
+) -> None:
+    """A failed switchover fails promptly unless cleanup is requested."""
+    del mock_logging
+    setup_aws_api_side_effects(
+        mock_aws_api,
+        get_blue_green_deployment=[
+            build_blue_green_deployment_response(
+                status="SWITCHOVER_FAILED",
+                status_details="replication is behind",
+            )
+        ],
+    )
+    manager = BlueGreenDeploymentManager(
+        aws_api=mock_aws_api,
+        app_interface_input=input_object(
+            build_blue_green_deployment_data(enabled=True, switchover=True)
+        ),
+        dry_run=False,
+    )
+
+    with pytest.raises(
+        RuntimeError, match=r"blue_green_deployment\.delete: true"
+    ) as error:
+        manager.run()
+
+    assert "replication is behind" in str(error.value)
+    mock_aws_api.get_db_instance.assert_not_called()
+    mock_aws_api.switchover_blue_green_deployment.assert_not_called()
+    mock_aws_api.delete_blue_green_deployment.assert_not_called()
+
+
+@pytest.mark.parametrize("status", ["INVALID_CONFIGURATION", "SWITCHOVER_FAILED"])
+def test_delete_terminal_failure_uses_delete_without_switchover(
+    mock_aws_api: Mock,
+    mock_logging: Mock,
+    *,
+    status: str,
+) -> None:
+    """An explicit delete request cleans up terminal states without creation checks."""
+    del mock_logging
+    setup_aws_api_side_effects(
+        mock_aws_api,
+        get_blue_green_deployment=[
+            build_blue_green_deployment_response(status=status),
+            None,
+        ],
+    )
+    manager = BlueGreenDeploymentManager(
+        aws_api=mock_aws_api,
+        app_interface_input=input_object(
+            build_blue_green_deployment_data(enabled=True, switchover=True, delete=True)
+        ),
+        dry_run=False,
+    )
+
+    assert manager.run() == State.NO_OP
+
+    mock_aws_api.get_db_instance.assert_not_called()
+    mock_aws_api.delete_db_instance.assert_not_called()
+    mock_aws_api.switchover_blue_green_deployment.assert_not_called()
+    mock_aws_api.delete_blue_green_deployment.assert_called_once_with(
+        "some-bg-id", delete_target=True
+    )
+    assert mock_aws_api.get_blue_green_deployment.call_count == 2
+
+
+@pytest.mark.parametrize("status", ["INVALID_CONFIGURATION", "SWITCHOVER_FAILED"])
+def test_delete_requested_before_terminal_failure_is_detected_while_waiting(
+    mock_aws_api: Mock,
+    mock_logging: Mock,
+    *,
+    status: str,
+) -> None:
+    """Use no-switchover cleanup when polling discovers a terminal failure."""
+    del mock_logging
+    setup_aws_api_side_effects(
+        mock_aws_api,
+        get_db_instance=[DEFAULT_RDS_INSTANCE],
+        get_blue_green_deployment=[
+            build_blue_green_deployment_response(
+                status="PROVISIONING", switchover_details=[]
+            ),
+            build_blue_green_deployment_response(status=status, switchover_details=[]),
+            None,
+        ],
+        get_db_parameter_group=[DEFAULT_TARGET_PARAMETER_GROUP],
+        get_blue_green_deployment_valid_upgrade_targets=[DEFAULT_VALID_UPGRADE_TARGETS],
+        get_db_parameters=[DEFAULT_SOURCE_DB_PARAMETERS],
+    )
+    manager = BlueGreenDeploymentManager(
+        aws_api=mock_aws_api,
+        app_interface_input=input_object(
+            build_blue_green_deployment_data(enabled=True, delete=True)
+        ),
+        dry_run=False,
+    )
+
+    assert manager.run() == State.NO_OP
+
+    mock_aws_api.delete_blue_green_deployment.assert_called_once_with(
+        "some-bg-id", delete_target=True
+    )
+    mock_aws_api.delete_db_instance.assert_not_called()
+    assert mock_aws_api.get_blue_green_deployment.call_count == 3
+
+
+@pytest.mark.parametrize("status", ["INVALID_CONFIGURATION", "SWITCHOVER_FAILED"])
+def test_delete_terminal_failure_propagates_aws_error(
+    mock_aws_api: Mock,
+    mock_logging: Mock,
+    *,
+    status: str,
+) -> None:
+    """Surface AWS delete failures without starting an unbounded deletion wait."""
+    del mock_logging
+    setup_aws_api_side_effects(
+        mock_aws_api,
+        get_blue_green_deployment=[build_blue_green_deployment_response(status=status)],
+    )
+    mock_aws_api.delete_blue_green_deployment.side_effect = RuntimeError(
+        "InvalidBlueGreenDeploymentStateFault"
+    )
+    manager = BlueGreenDeploymentManager(
+        aws_api=mock_aws_api,
+        app_interface_input=input_object(
+            build_blue_green_deployment_data(enabled=True, delete=True)
+        ),
+        dry_run=False,
+    )
+
+    with pytest.raises(RuntimeError, match="InvalidBlueGreenDeploymentStateFault"):
+        manager.run()
+
+    mock_aws_api.delete_blue_green_deployment.assert_called_once_with(
+        "some-bg-id", delete_target=True
+    )
+    mock_aws_api.get_blue_green_deployment.assert_called_once_with("test-rds")
+
+
+@pytest.mark.parametrize(
+    (
+        "deployment_statuses",
+        "switchover_response_status",
+        "cleanup_expected",
+    ),
+    [
+        (
+            ["SWITCHOVER_IN_PROGRESS", "SWITCHOVER_FAILED"],
+            None,
+            True,
+        ),
+        (
+            ["AVAILABLE", "SWITCHOVER_IN_PROGRESS", "AVAILABLE"],
+            "SWITCHOVER_IN_PROGRESS",
+            False,
+        ),
+        (
+            ["AVAILABLE", "AVAILABLE"],
+            "SWITCHOVER_IN_PROGRESS",
+            False,
+        ),
+    ],
+)
+def test_failed_or_cancelled_switchover_does_not_delete_source(
+    mock_aws_api: Mock,
+    mock_logging: Mock,
+    *,
+    deployment_statuses: list[str],
+    switchover_response_status: str | None,
+    cleanup_expected: bool,
+) -> None:
+    """Keep the source when failure or cancellation blocks a requested deletion."""
+    del mock_logging
+    setup_aws_api_side_effects(
+        mock_aws_api,
+        get_db_instance=[
+            DEFAULT_RDS_INSTANCE,
+            DEFAULT_RDS_INSTANCE,
+            DEFAULT_TARGET_RDS_INSTANCE,
+        ],
+        get_blue_green_deployment=[
+            build_blue_green_deployment_response(status=deployment_statuses[0]),
+            *[
+                build_blue_green_deployment_response(
+                    status=status,
+                    status_details="green database is still catching up",
+                )
+                for status in deployment_statuses[1:]
+            ],
+            *([None] if cleanup_expected else []),
+        ],
+        get_db_parameter_group=[DEFAULT_TARGET_PARAMETER_GROUP],
+        get_blue_green_deployment_valid_upgrade_targets=[DEFAULT_VALID_UPGRADE_TARGETS],
+        get_db_parameters=[DEFAULT_SOURCE_DB_PARAMETERS],
+    )
+    if switchover_response_status is not None:
+        mock_aws_api.switchover_blue_green_deployment.return_value = (
+            build_blue_green_deployment_response(
+                status=switchover_response_status,
+                status_details="switchover started",
+            )
+        )
+    manager = BlueGreenDeploymentManager(
+        aws_api=mock_aws_api,
+        app_interface_input=input_object(
+            build_blue_green_deployment_data(enabled=True, switchover=True, delete=True)
+        ),
+        dry_run=False,
+    )
+
+    def no_sleep_wait_for(
+        condition: Callable[[], bool],
+        *,
+        logger: Logger,
+        timeout: int | None = None,
+        interval: int = 60,
+    ) -> None:
+        del logger, timeout, interval
+        while not condition():
+            pass
+
+    with patch(
+        "hooks.utils.blue_green_deployment_manager.wait_for",
+        side_effect=no_sleep_wait_for,
+    ):
+        if cleanup_expected:
+            assert manager.run() == State.NO_OP
+        else:
+            with pytest.raises(RuntimeError, match="cancelled or rolled back") as error:
+                manager.run()
+            assert "green database is still catching up" in str(error.value)
+
+    assert manager.model is not None
+    if not cleanup_expected:
+        assert manager.model.state == State.SWITCHOVER_CANCELLED
+    mock_aws_api.delete_db_instance.assert_not_called()
+    if cleanup_expected:
+        mock_aws_api.delete_blue_green_deployment.assert_called_once_with(
+            "some-bg-id", delete_target=True
+        )
+    else:
+        mock_aws_api.delete_blue_green_deployment.assert_not_called()
+
+
+def test_initial_available_status_is_not_switchover_cancellation(
+    mock_aws_api: Mock,
+    mock_logging: Mock,
+) -> None:
+    """An AVAILABLE response before observed progress is polled through."""
+    del mock_logging
+    setup_aws_api_side_effects(
+        mock_aws_api,
+        get_db_instance=[
+            DEFAULT_RDS_INSTANCE,
+            DEFAULT_RDS_INSTANCE,
+            DEFAULT_TARGET_RDS_INSTANCE,
+        ],
+        get_blue_green_deployment=[
+            build_blue_green_deployment_response(status="AVAILABLE"),
+            build_blue_green_deployment_response(status="AVAILABLE"),
+            build_blue_green_deployment_response(status="SWITCHOVER_IN_PROGRESS"),
+            build_blue_green_deployment_response(status="SWITCHOVER_COMPLETED"),
+        ],
+        get_db_parameter_group=[DEFAULT_TARGET_PARAMETER_GROUP],
+        get_blue_green_deployment_valid_upgrade_targets=[DEFAULT_VALID_UPGRADE_TARGETS],
+        get_db_parameters=[DEFAULT_SOURCE_DB_PARAMETERS],
+    )
+    mock_aws_api.switchover_blue_green_deployment.return_value = (
+        build_blue_green_deployment_response(status="AVAILABLE")
+    )
+    manager = BlueGreenDeploymentManager(
+        aws_api=mock_aws_api,
+        app_interface_input=input_object(
+            build_blue_green_deployment_data(enabled=True, switchover=True)
+        ),
+        dry_run=False,
+    )
+
+    def no_sleep_wait_for(
+        condition: Callable[[], bool],
+        *,
+        logger: Logger,
+        timeout: int | None = None,
+        interval: int = 60,
+    ) -> None:
+        del logger, timeout, interval
+        while not condition():
+            pass
+
+    with patch(
+        "hooks.utils.blue_green_deployment_manager.wait_for",
+        side_effect=no_sleep_wait_for,
+    ) as wait_for_mock:
+        assert manager.run() == State.SWITCHOVER_COMPLETED
+
+    mock_aws_api.switchover_blue_green_deployment.assert_called_once_with(
+        "some-bg-id", timeout=None
+    )
+    assert mock_aws_api.get_blue_green_deployment.call_count == 4
+    assert wait_for_mock.call_args.kwargs["timeout"] == 300
+
+
+def test_switchover_wait_timeout_reports_last_status(
+    mock_aws_api: Mock,
+    mock_logging: Mock,
+) -> None:
+    """Bound a resumed switchover wait by the configured timeout."""
+    del mock_logging
+    setup_aws_api_side_effects(
+        mock_aws_api,
+        get_db_instance=[DEFAULT_RDS_INSTANCE],
+        get_blue_green_deployment=[
+            build_blue_green_deployment_response(
+                status="SWITCHOVER_IN_PROGRESS", switchover_details=[]
+            ),
+            build_blue_green_deployment_response(
+                status="SWITCHOVER_IN_PROGRESS",
+                switchover_details=[],
+                status_details="replication is progressing",
+            ),
+        ],
+        get_db_parameter_group=[DEFAULT_TARGET_PARAMETER_GROUP],
+        get_blue_green_deployment_valid_upgrade_targets=[DEFAULT_VALID_UPGRADE_TARGETS],
+        get_db_parameters=[DEFAULT_SOURCE_DB_PARAMETERS],
+    )
+    manager = BlueGreenDeploymentManager(
+        aws_api=mock_aws_api,
+        app_interface_input=input_object(
+            build_blue_green_deployment_data(
+                enabled=True, switchover=True, switchover_timeout=123
+            )
+        ),
+        dry_run=False,
+    )
+
+    def time_out(
+        condition: Callable[[], bool],
+        *,
+        logger: Logger,
+        timeout: int | None = None,
+        interval: int = 60,
+    ) -> None:
+        del logger, interval
+        assert timeout == 123
+        assert not condition()
+        raise TimeoutError("condition wait expired")
+
+    with (
+        patch(
+            "hooks.utils.blue_green_deployment_manager.wait_for",
+            side_effect=time_out,
+        ),
+        pytest.raises(TimeoutError) as error,
+    ):
+        manager.run()
+
+    message = str(error.value)
+    assert "some-bg-id" in message
+    assert "123 seconds" in message
+    assert "SWITCHOVER_IN_PROGRESS" in message
+    assert "replication is progressing" in message
+    assert "blue_green_deployment.switchover: false" in message
+    mock_aws_api.delete_db_instance.assert_not_called()

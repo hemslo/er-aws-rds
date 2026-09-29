@@ -231,14 +231,15 @@ class AWSApi:
         self,
         identifier: str,
         timeout: int | None = None,
-    ) -> None:
+    ) -> BlueGreenDeploymentTypeDef:
         """Switchover Blue/Green Deployment"""
         kwargs: SwitchoverBlueGreenDeploymentRequestTypeDef = {
             "BlueGreenDeploymentIdentifier": identifier,
         }
         if timeout is not None:
             kwargs["SwitchoverTimeout"] = timeout
-        self.rds_client.switchover_blue_green_deployment(**kwargs)
+        response = self.rds_client.switchover_blue_green_deployment(**kwargs)
+        return response["BlueGreenDeployment"]
 
     def delete_blue_green_deployment(
         self,

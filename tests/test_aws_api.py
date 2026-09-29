@@ -528,10 +528,14 @@ def test_switchover_blue_green_deployment(
     """Test switchover_blue_green_deployment"""
     mock_rds_client = mock_all_aws_clients["rds"]
     aws_api = AWSApi()
-    mock_rds_client.switchover_blue_green_deployment.return_value = None
+    deployment = {"Status": "SWITCHOVER_IN_PROGRESS"}
+    mock_rds_client.switchover_blue_green_deployment.return_value = {
+        "BlueGreenDeployment": deployment,
+    }
 
-    aws_api.switchover_blue_green_deployment("identifier")
+    result = aws_api.switchover_blue_green_deployment("identifier")
 
+    assert result == deployment
     mock_rds_client.switchover_blue_green_deployment.assert_called_once_with(
         BlueGreenDeploymentIdentifier="identifier"
     )
@@ -543,10 +547,14 @@ def test_switchover_blue_green_deployment_with_timeout(
     """Test switchover_blue_green_deployment"""
     mock_rds_client = mock_all_aws_clients["rds"]
     aws_api = AWSApi()
-    mock_rds_client.switchover_blue_green_deployment.return_value = None
+    deployment = {"Status": "SWITCHOVER_IN_PROGRESS"}
+    mock_rds_client.switchover_blue_green_deployment.return_value = {
+        "BlueGreenDeployment": deployment,
+    }
 
-    aws_api.switchover_blue_green_deployment("identifier", timeout=600)
+    result = aws_api.switchover_blue_green_deployment("identifier", timeout=600)
 
+    assert result == deployment
     mock_rds_client.switchover_blue_green_deployment.assert_called_once_with(
         BlueGreenDeploymentIdentifier="identifier",
         SwitchoverTimeout=600,

@@ -133,6 +133,23 @@ erv2-itest \
 Do not pass `--keep` to the cleanup command. The scenario logs and working
 directories are stored under `.erv2-itests/`.
 
+The Blue/Green major-upgrade scenarios use their own PostgreSQL 16.14 base
+input and target PostgreSQL 17.11. Run both cases with:
+
+```shell
+erv2-itest \
+  integration-tests/blue-green-deployment/scenario.yaml \
+  integration-tests/blue-green-deployment/abort.yaml
+```
+
+The switchover scenario promotes the PostgreSQL 17 green instance and verifies
+steady state. The abort scenario deletes green without switchover and verifies
+that the PostgreSQL 16 source remains unchanged. Both scenarios clean up the
+database and parameter groups. If a switchover fails, the manager preserves the
+source instance; retain the run ID and use the manual cleanup procedure if the
+scenario cleanup also fails. These scenarios do not verify that AWS accepts
+deletion in `INVALID_CONFIGURATION`; verify that path in non-production.
+
 ### On Host
 
 Generate terraform config.
