@@ -233,7 +233,10 @@ def test_validate_no_changes_when_blue_green_deployment_enabled(
     errors = validator.validate()
 
     assert errors == [
-        f"There are pending resource changes after a Blue/Green Deployment. This should not happen. Detected changes: {plan.resource_changes}"
+        (
+            "There are pending resource changes after a Blue/Green Deployment. "
+            "Check the Terraform plan output."
+        )
     ]
 
 

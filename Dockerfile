@@ -1,6 +1,6 @@
 FROM quay.io/redhat-services-prod/app-sre-tenant/er-base-terraform-main/er-base-terraform-main:0.6.0-19@sha256:267a8aadb30e5aca14b43ec0214d8aff742f7cc55ced338388a249a9af665d58 AS base
 # keep in sync with pyproject.toml
-LABEL konflux.additional-tags="0.13.2"
+LABEL konflux.additional-tags="0.13.3"
 COPY LICENSE /licenses/
 ENV TERRAFORM_MODULE_SRC_DIR="./module"
 
