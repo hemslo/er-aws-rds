@@ -10,7 +10,7 @@ from external_resources_io.terraform import Action, Plan
 
 from hooks.post_plan import RDSPlanValidator
 
-from .conftest import input_object
+from .conftest import DEFAULT_RDS_INSTANCE, input_object
 
 
 @pytest.fixture
@@ -41,6 +41,7 @@ def mock_aws_api() -> Iterator[Mock]:
     with patch("hooks.post_plan.AWSApi", autospec=True) as m:
         # Make sure Action.Create tests dont fail because of missing sgA.
         m.return_value.get_security_group_ids_for_db_subnet_group.return_value = {"sgA"}
+        m.return_value.get_db_instance.return_value = DEFAULT_RDS_INSTANCE
         yield m
 
 
@@ -138,6 +139,173 @@ def test_validate_version_upgrade(mock_aws_api: Mock) -> None:
     errors = validator.validate()
     assert errors == [
         "To enable major version upgrade, allow_major_version_upgrade attribute must be set to True"
+    ]
+
+
+@pytest.mark.parametrize(
+    "status",
+    ["backing-up", "upgrading", "modifying", None],
+)
+def test_validate_password_reset_when_instance_not_available(
+    mock_aws_api: Mock,
+    *,
+    status: str | None,
+) -> None:
+    """Do not reset the generated password unless AWS reports that the RDS instance is available."""
+    if status is None:
+        mock_aws_api.return_value.get_db_instance.return_value = {
+            key: value
+            for key, value in DEFAULT_RDS_INSTANCE.items()
+            if key != "DBInstanceStatus"
+        }
+    else:
+        mock_aws_api.return_value.get_db_instance.return_value = (
+            DEFAULT_RDS_INSTANCE | {"DBInstanceStatus": status}
+        )
+    plan = Plan.model_validate({
+        "resource_changes": [
+            {
+                "type": "random_password",
+                "change": {
+                    "actions": [Action.ActionDelete, Action.ActionCreate],
+                    "before": {"keepers": {"reset_password": "previous"}},
+                    "after": {"keepers": {"reset_password": "APPSRE-15344"}},
+                    "after_unknown": {},
+                },
+            },
+            {
+                "type": "aws_db_instance",
+                "change": {
+                    "actions": [Action.ActionUpdate],
+                    "before": {
+                        "identifier": "test-rds",
+                        "engine": "postgres",
+                        "engine_version": "15.7",
+                        "region": "us-east-1",
+                    },
+                    "after": {
+                        "identifier": "test-rds",
+                        "engine": "postgres",
+                        "engine_version": "15.7",
+                    },
+                    "after_unknown": {},
+                },
+            },
+        ],
+        # The changed output would otherwise publish the rotated password.
+        "output_changes": {
+            "db_password": {
+                "actions": [Action.ActionUpdate],
+                "before": "previous",
+                "after": "planned",
+                "after_unknown": False,
+            }
+        },
+    })
+
+    validator = RDSPlanValidator(plan, input_object())
+
+    status_message = (
+        f"AWS reports status '{status}'"
+        if status is not None
+        else "AWS did not report DBInstanceStatus"
+    )
+    assert validator.validate() == [
+        (
+            f"Cannot reset password for RDS instance test-rds: {status_message}. "
+            "Terraform apply was not started. Please wait until AWS reports the RDS "
+            "instance as 'available', then retry the reconciliation."
+        )
+    ]
+    mock_aws_api.return_value.get_db_instance.assert_called_once_with("test-rds")
+
+
+def test_validate_password_reset_when_instance_is_available(
+    mock_aws_api: Mock,
+) -> None:
+    """Allow a password reset when AWS reports the instance is available."""
+    plan = Plan.model_validate({
+        "resource_changes": [
+            {
+                "type": "random_password",
+                "change": {
+                    "actions": [Action.ActionDelete, Action.ActionCreate],
+                    "before": {"keepers": {"reset_password": "previous"}},
+                    "after": {"keepers": {"reset_password": "APPSRE-15344"}},
+                    "after_unknown": {},
+                },
+            },
+            {
+                "type": "aws_db_instance",
+                "change": {
+                    "actions": [Action.ActionUpdate],
+                    "before": {
+                        "identifier": "test-rds",
+                        "engine": "postgres",
+                        "engine_version": "15.7",
+                        "region": "us-east-1",
+                    },
+                    "after": {
+                        "identifier": "test-rds",
+                        "engine": "postgres",
+                        "engine_version": "15.7",
+                    },
+                    "after_unknown": {},
+                },
+            },
+        ]
+    })
+
+    validator = RDSPlanValidator(plan, input_object())
+
+    assert validator.validate() == []
+    mock_aws_api.return_value.get_db_instance.assert_called_once_with("test-rds")
+
+
+def test_validate_password_reset_when_instance_is_missing(
+    mock_aws_api: Mock,
+) -> None:
+    """Reject a password reset when the RDS instance is missing in AWS."""
+    mock_aws_api.return_value.get_db_instance.return_value = None
+    plan = Plan.model_validate({
+        "resource_changes": [
+            {
+                "type": "random_password",
+                "change": {
+                    "actions": [Action.ActionDelete, Action.ActionCreate],
+                    "before": {"keepers": {"reset_password": "previous"}},
+                    "after": {"keepers": {"reset_password": "APPSRE-15344"}},
+                    "after_unknown": {},
+                },
+            },
+            {
+                "type": "aws_db_instance",
+                "change": {
+                    "actions": [Action.ActionUpdate],
+                    "before": {
+                        "identifier": "test-rds",
+                        "engine": "postgres",
+                        "engine_version": "15.7",
+                        "region": "us-east-1",
+                    },
+                    "after": {
+                        "identifier": "test-rds",
+                        "engine": "postgres",
+                        "engine_version": "15.7",
+                    },
+                    "after_unknown": {},
+                },
+            },
+        ]
+    })
+
+    validator = RDSPlanValidator(plan, input_object())
+
+    assert validator.validate() == [
+        (
+            "Cannot reset password for RDS instance test-rds: it was not found in AWS. "
+            "Refresh the Terraform plan before applying."
+        )
     ]
 
 

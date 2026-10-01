@@ -1,0 +1,64 @@
+name: rds-primary-storage-update-password-guard
+description: >
+  Create a primary RDS instance, increase allocated storage from 20 GiB to 30
+  GiB, then immediately plan a password reset while AWS reports
+  storage-optimization. Verify the post-plan guard rejects the reset before
+  apply.
+base_input: integration-tests/basic/base_input.json
+
+steps:
+  - name: create database
+    action: Apply
+    dry_run: false
+    timeout_seconds: 3600
+    expect:
+      exit_code: 0
+      log_contains:
+        - "Apply complete!"
+      log_not_contains:
+        - "Error:"
+
+  - name: increase allocated storage
+    input:
+      allocated_storage: 30
+    action: Apply
+    dry_run: false
+    timeout_seconds: 3600
+    expect:
+      exit_code: 0
+      log_contains:
+        - "Apply complete!"
+      log_not_contains:
+        - "No changes."
+        - "Cannot reset password for RDS instance"
+        - "Error:"
+
+  - name: reject password reset during storage optimization
+    input:
+      allocated_storage: 30
+      reset_password: "test"
+    action: Apply
+    dry_run: true
+    timeout_seconds: 1800
+    expect:
+      exit_code: 1
+      log_contains:
+        - "Cannot reset password for RDS instance"
+        - "storage-optimization"
+        - "Terraform apply was not started."
+      log_not_contains:
+        - "Apply complete!"
+
+cleanup:
+  name: destroy database
+  input:
+    allocated_storage: 30
+  action: Destroy
+  dry_run: false
+  timeout_seconds: 3600
+  expect:
+    exit_code: 0
+    log_contains:
+      - "Destroy complete!"
+    log_not_contains:
+      - "Error:"
